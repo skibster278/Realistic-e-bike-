@@ -191,7 +191,7 @@ export function buildWorld(scene, assets) {
   // --- base ground
   const grassMap = TX.grassTex(); grassMap.repeat.set(1500, 1500);
   const grassNor = TX.imgTex('leafy_grass_nor', 1500, 1500, false);
-  const ground = addMesh(new THREE.PlaneGeometry(6000, 6000, 150, 150).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: grassMap, normalMap: grassNor, roughness: 1, color: 0xc8c8b0 }), false, true);
+  const ground = addMesh(new THREE.PlaneGeometry(6000, 6000, 150, 150).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: grassMap, normalMap: grassNor, roughness: 1, color: 0x8f9a5c }), false, true);
   ground.position.y = -0.12;
 
   // --- city concrete pad
@@ -274,10 +274,26 @@ export function buildWorld(scene, assets) {
   const facades = [];
   for (let i = 0; i < TX.FACADE_COUNT; i++) {
     const f = TX.facadeTex(i);
-    const mat = new THREE.MeshStandardMaterial({ map: f.map, emissiveMap: f.emissive, emissive: 0xffffff, emissiveIntensity: 0, roughness: i === 2 ? 0.25 : 0.8, metalness: i === 2 ? 0.6 : 0.05 });
+    const mat = new THREE.MeshStandardMaterial({ map: f.map, emissiveMap: f.emissive, emissive: 0xffffff, emissiveIntensity: 0, roughnessMap: f.mr, metalnessMap: f.mr, roughness: 1, metalness: i === 2 ? 1 : 0.85, bumpMap: f.bump, bumpScale: 3, envMapIntensity: 1.4 });
     nightMats.push({ mat, max: 1.6 });
     facades.push({ mat, geos: [] });
   }
+  const shop = TX.shopTex();
+  const shopMat = new THREE.MeshStandardMaterial({ map: shop.map, emissiveMap: shop.emissive, emissive: 0xffffff, emissiveIntensity: 0.15, roughnessMap: shop.mr, metalnessMap: shop.mr, roughness: 1, metalness: 0.9, bumpMap: shop.bump, bumpScale: 2 });
+  nightMats.push({ mat: shopMat, max: 2.2, min: 0.04 });
+  const shopGeos = [], trimGeos = [];
+  // box with facade UVs: u in metres/uRep, v from v0
+  const fbox = (w, h, d, cx, y0, cz, uRep, vRep, v0 = 0) => {
+    const g = new THREE.BoxGeometry(w, h, d);
+    const uv = g.attributes.uv;
+    for (let f = 0; f < 6; f++) for (let v = 0; v < 4; v++) {
+      const idx = f * 4 + v;
+      if (f === 2 || f === 3) { uv.setXY(idx, 0.5, 0.996); continue; }
+      const faceW = f < 2 ? d : w;
+      uv.setXY(idx, uv.getX(idx) * faceW / uRep, v0 + uv.getY(idx) * h / vRep);
+    }
+    return g.translate(cx, y0 + h / 2, cz);
+  };
   const roofBits = [];
   const B = [-300, -200, -100, 0, 100, 200];
   for (const bx of B) for (const bz of B) {
@@ -287,29 +303,53 @@ export function buildWorld(scene, assets) {
     const lw = (x1 - x0) / n, ld = (z1 - z0) / m;
     for (let i = 0; i < n; i++) for (let j = 0; j < m; j++) {
       const cx = x0 + lw * (i + 0.5), cz = z0 + ld * (j + 0.5);
-      const w = lw * rr(0.75, 0.95), d = ld * rr(0.75, 0.95);
+      const w = lw * rr(0.82, 0.97), d = ld * rr(0.82, 0.97);
       const dist = Math.hypot(cx, cz);
-      let h = rr(12, 35) + Math.max(0, 1 - dist / 380) * rr(10, 150);
+      const h = rr(14, 36) + Math.max(0, 1 - dist / 380) * rr(10, 150);
       const style = h > 80 ? pick([2, 3, 2, 0]) : pick([0, 1, 4, 1, 3]);
-      const g = new THREE.BoxGeometry(w, h, d);
-      const uv = g.attributes.uv;
-      for (let f = 0; f < 6; f++) for (let v = 0; v < 4; v++) {
-        const idx = f * 4 + v;
-        if (f === 2 || f === 3) { uv.setXY(idx, 0.5, 0.996); continue; }
-        const faceW = f < 2 ? d : w;
-        uv.setXY(idx, uv.getX(idx) * faceW / 12, uv.getY(idx) * h / 28);
+      const SH = 4.5;
+      shopGeos.push(fbox(w, SH, d, cx, 0, cz, 12, SH));
+      trimGeos.push(boxGeo(w + 0.5, 0.45, d + 0.5, cx, SH + 0.2, cz)); // ledge above shops
+      const setback = h > 70 && rand() < 0.65;
+      const h1 = setback ? h * rr(0.6, 0.78) : h;
+      facades[style].geos.push(fbox(w, h1 - SH - 0.45, d, cx, SH + 0.45, cz, 12, 28));
+      trimGeos.push(boxGeo(w + 0.6, 0.9, d + 0.6, cx, h1 + 0.2, cz)); // parapet / cornice
+      let top = h1;
+      if (setback) {
+        const w2 = w * rr(0.6, 0.8), d2 = d * rr(0.6, 0.8);
+        facades[style].geos.push(fbox(w2, h - h1, d2, cx, h1 + 0.65, cz, 12, 28));
+        trimGeos.push(boxGeo(w2 + 0.5, 0.8, d2 + 0.5, cx, h + 0.9, cz));
+        top = h + 0.65;
       }
-      g.translate(cx, h / 2, cz);
-      facades[style].geos.push(g);
       addBox(cx - w / 2, cx + w / 2, cz - d / 2, cz + d / 2, h);
-      // roof units
-      cityRoofs.push([cx, h, cz, w, d]);
-      for (let k = 0; k < 1; k++) roofBits.push(boxGeo(rr(2, 5), rr(1, 2.5), rr(2, 5), cx + rr(-w / 3, w / 3), h + 0.8, cz + rr(-d / 3, d / 3)));
-      if (h > 90) roofBits.push(new THREE.CylinderGeometry(0.15, 0.15, 12).translate(cx, h + 6, cz));
+      cityRoofs.push([cx, top + 0.6, cz, w * 0.6, d * 0.6]);
+      roofBits.push(boxGeo(rr(3, 6), rr(2, 3.5), rr(3, 6), cx + rr(-w / 5, w / 5), top + 1.5, cz + rr(-d / 5, d / 5)));
+      if (h > 90) roofBits.push(new THREE.CylinderGeometry(0.15, 0.15, 14).translate(cx, top + 7, cz));
+      // awnings on some shopfronts
+      if (rand() < 0.5) {
+        const side = rand() < 0.5 ? -1 : 1, aw = Math.min(w, 10);
+        trimGeos.push(boxGeo(aw, 0.12, 1.6, cx + rr(-w / 4, w / 4), 3.4, cz + side * (d / 2 + 0.8), side * 0.25, 0, 0));
+      }
     }
   }
   for (const f of facades) if (f.geos.length) addMesh(merge(f.geos), f.mat);
-  addMesh(merge(roofBits), new THREE.MeshStandardMaterial({ color: 0x8a8a88, roughness: 0.7, metalness: 0.3 }));
+  addMesh(merge(shopGeos), shopMat);
+  addMesh(merge(trimGeos), new THREE.MeshStandardMaterial({ color: 0x9a968e, roughness: 0.85, map: TX.imgTex('concrete_wall_004_diff', 0.2, 0.2) }));
+  addMesh(merge(roofBits), new THREE.MeshStandardMaterial({ color: 0x8a8a88, roughness: 0.6, metalness: 0.4 }));
+
+  // --- raised curbs along city & neighbourhood roads
+  const curbs = [];
+  for (const s2 of roads) {
+    if (s2.kind !== 'city' && s2.kind !== 'hood') continue;
+    const yaw = Math.atan2(s2.dx, s2.dz), cx = (s2.ax + s2.bx) / 2, cz = (s2.az + s2.bz) / 2;
+    const L2 = s2.len - (s2.kind === 'city' ? 16 : 10);
+    if (L2 <= 0) continue;
+    for (const sd of [-1, 1]) {
+      const ox = -s2.dz * sd * (s2.w / 2 + 0.15), oz = s2.dx * sd * (s2.w / 2 + 0.15);
+      curbs.push(boxGeo(0.3, 0.16, L2, 0, 0.08, 0).rotateY(yaw).translate(cx + ox, 0, cz + oz));
+    }
+  }
+  addMesh(merge(curbs), new THREE.MeshStandardMaterial({ color: 0xb4b0a8, roughness: 0.9, map: TX.imgTex('concrete_wall_004_diff', 0.3, 8) }), false, true);
 
   // --- neighborhood houses
   const ht = TX.houseTex();

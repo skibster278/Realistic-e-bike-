@@ -189,6 +189,8 @@ export function facadeTex(i) {
   const f = FACADES[i], S = 512, c = C(S, S), x = c.getContext('2d');
   const e = C(S, S), ex = e.getContext('2d');
   ex.fillStyle = '#000'; ex.fillRect(0, 0, S, S);
+  const mr = C(S, S), mx = mr.getContext('2d'); mx.fillStyle = 'rgb(0,235,0)'; mx.fillRect(0, 0, S, S);
+  const bm = C(S, S), bx = bm.getContext('2d'); bx.fillStyle = '#9a9a9a'; bx.fillRect(0, 0, S, S);
   x.fillStyle = f.wall; x.fillRect(0, 0, S, S);
   const wallImg = i === 1 ? 'brick_wall_02_diff' : i === 0 ? 'concrete_wall_004_diff' : i === 4 ? 'white_plaster_02_diff' : null;
   if (wallImg && tileImg(x, wallImg, S, S, S / 2)) { x.globalAlpha = 0.25; x.fillStyle = f.wall; x.fillRect(0, 0, S, S); x.globalAlpha = 1; }
@@ -202,11 +204,19 @@ export function facadeTex(i) {
   for (let r = 0; r < rows; r++) for (let k = 0; k < cols; k++) {
     const ww = cw * f.winW, wh = rh * f.winH, wx = k * cw + (cw - ww) / 2, wy = r * rh + (rh - wh) / 2;
     x.fillStyle = f.frame; x.fillRect(wx - 3, wy - 3, ww + 6, wh + 6);
+    bx.fillStyle = '#fff'; bx.fillRect(wx - 4, wy - 4, ww + 8, wh + 8); // frame raised
+    bx.fillStyle = '#000'; bx.fillRect(wx, wy, ww, wh); // glass recessed
+    bx.fillStyle = '#c8c8c8'; bx.fillRect(wx - 6, wy + wh + 3, ww + 12, 4); // sill
+    mx.fillStyle = 'rgb(0,150,40)'; mx.fillRect(wx - 3, wy - 3, ww + 6, wh + 6);
+    mx.fillStyle = `rgb(0,${8 + rand() * 20 | 0},${i === 2 ? 255 : 210})`; mx.fillRect(wx, wy, ww, wh);
     const g = x.createLinearGradient(wx, wy, wx + ww, wy + wh);
     g.addColorStop(0, f.glass[1]); g.addColorStop(0.5, f.glass[0]); g.addColorStop(1, f.glass[1]);
     x.fillStyle = g; x.fillRect(wx, wy, ww, wh);
     x.fillStyle = 'rgba(255,255,255,0.08)'; x.fillRect(wx, wy, ww * 0.35, wh);
-    if (i !== 2) { x.fillStyle = f.frame; x.fillRect(wx + ww / 2 - 1, wy, 2, wh); }
+    if (i !== 2) { x.fillStyle = f.frame; x.fillRect(wx + ww / 2 - 1, wy, 2, wh); mx.fillStyle = 'rgb(0,150,40)'; mx.fillRect(wx + ww / 2 - 1, wy, 2, wh); bx.fillStyle = '#fff'; bx.fillRect(wx + ww / 2 - 1, wy, 2, wh); }
+    else { x.fillStyle = f.frame; x.fillRect(wx, wy + wh / 2 - 1, ww, 2); }
+    // interior hint: curtains / ceiling lights visible through glass
+    if (rand() < 0.3) { x.fillStyle = `rgba(${150 + rand() * 80 | 0},${130 + rand() * 60 | 0},${100 + rand() * 50 | 0},0.25)`; x.fillRect(wx + (rand() < 0.5 ? 0 : ww * 0.6), wy, ww * 0.4, wh); }
     // lit windows at night
     if (rand() < 0.38) {
       const warm = rand() < 0.75;
@@ -220,7 +230,45 @@ export function facadeTex(i) {
   }
   x.fillStyle = '#555452'; x.fillRect(0, 0, S, 6);
   ex.fillStyle = '#000'; ex.fillRect(0, 0, S, 6);
-  return { map: tex(c), emissive: tex(e) };
+  mx.fillStyle = 'rgb(0,235,0)'; mx.fillRect(0, 0, S, 6);
+  return { map: tex(c), emissive: tex(e), mr: tex(mr, false), bump: tex(bm, false) };
+}
+// storefront band: one repeat = 12 m wide x 4.5 m high
+const SIGNS = ['#b8202a', '#1f5fa8', '#1f8a4a', '#d9a020', '#222', '#7a2a8a', '#e0e0e0'];
+export function shopTex() {
+  const W = 1024, H = 384, c = C(W, H), x = c.getContext('2d');
+  const e = C(W, H), ex = e.getContext('2d'); ex.fillStyle = '#000'; ex.fillRect(0, 0, W, H);
+  const mr = C(W, H), mx = mr.getContext('2d'); mx.fillStyle = 'rgb(0,200,0)'; mx.fillRect(0, 0, W, H);
+  const bm = C(W, H), bx = bm.getContext('2d'); bx.fillStyle = '#888'; bx.fillRect(0, 0, W, H);
+  x.fillStyle = '#3a3a3c'; x.fillRect(0, 0, W, H);
+  tileImg(x, 'concrete_wall_004_diff', W, H, 256, 0.6);
+  for (let k = 0; k < 3; k++) {
+    const sx = k * W / 3 + 14, sw = W / 3 - 28;
+    // sign band
+    const sc = SIGNS[(rand() * SIGNS.length) | 0];
+    x.fillStyle = sc; x.fillRect(sx, 18, sw, 58);
+    x.fillStyle = 'rgba(255,255,255,0.85)'; x.font = 'bold 34px Arial'; x.textAlign = 'center';
+    const names = ['CAFE', 'MARKET', 'PHARMACY', 'PIZZA', 'BANK', 'BOUTIQUE', 'DELI', 'BOOKS', 'GYM', 'BAR', 'SUSHI', 'TACOS', 'BAKERY', 'CYCLES'];
+    const nm = names[(rand() * names.length) | 0];
+    x.fillText(nm, sx + sw / 2, 60);
+    ex.fillStyle = sc; ex.fillRect(sx, 18, sw, 58); ex.fillStyle = '#fff'; ex.font = 'bold 34px Arial'; ex.textAlign = 'center'; ex.fillText(nm, sx + sw / 2, 60);
+    bx.fillStyle = '#ddd'; bx.fillRect(sx, 18, sw, 58);
+    // glass
+    const gy = 96, gh = H - gy - 14;
+    x.fillStyle = '#1a1c1e'; x.fillRect(sx - 4, gy - 4, sw + 8, gh + 8);
+    const g = x.createLinearGradient(sx, gy, sx, gy + gh); g.addColorStop(0, '#5a6a78'); g.addColorStop(1, '#1a2028');
+    x.fillStyle = g; x.fillRect(sx, gy, sw, gh);
+    // interior: shelves, lights
+    for (let r = 0; r < 4; r++) { x.fillStyle = `rgba(${120 + rand() * 100 | 0},${100 + rand() * 80 | 0},${80 + rand() * 60 | 0},0.35)`; x.fillRect(sx + 10, gy + 40 + r * 50, sw - 20, 14); }
+    ex.fillStyle = `rgba(255,${200 + rand() * 40 | 0},${140 + rand() * 60 | 0},0.85)`; ex.fillRect(sx, gy, sw, gh);
+    for (let r = 0; r < 4; r++) { ex.fillStyle = 'rgba(0,0,0,0.35)'; ex.fillRect(sx + 10, gy + 40 + r * 50, sw - 20, 14); }
+    mx.fillStyle = 'rgb(0,10,230)'; mx.fillRect(sx, gy, sw, gh);
+    bx.fillStyle = '#222'; bx.fillRect(sx, gy, sw, gh);
+    // mullions + door
+    x.fillStyle = '#1a1c1e'; for (const f of [0.33, 0.66]) x.fillRect(sx + sw * f - 3, gy, 6, gh);
+    x.fillStyle = '#26292c'; x.fillRect(sx + sw * 0.4, gy + 20, sw * 0.2, gh - 20);
+  }
+  return { map: tex(c), emissive: tex(e), mr: tex(mr, false), bump: tex(bm, false) };
 }
 // house facade: one repeat = 8 m wide x 3 m high (1 floor)
 export function houseTex() {

@@ -247,6 +247,19 @@ function drawDash() {
 }
 function fmtTime(t) { const h = Math.floor(t), m = Math.floor((t - h) * 60); return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`; }
 
+// r160 has no scene.environmentIntensity: drive envMapIntensity on every material
+let envMats = [], envLast = -1, envScanT = 0;
+function setEnvIntensity(v) {
+  envScanT -= 1;
+  if (envScanT <= 0) {
+    envScanT = 120; const set = new Set();
+    scene.traverse((o) => { if (o.material) for (const m of [].concat(o.material)) if (m.isMeshStandardMaterial) { if (m.userData.envBase === undefined) m.userData.envBase = m.envMapIntensity ?? 1; set.add(m); } });
+    envMats = [...set]; envLast = -1;
+  }
+  if (Math.abs(v - envLast) < 0.005) return;
+  envLast = v;
+  for (const m of envMats) m.envMapIntensity = m.userData.envBase * v;
+}
 // ------------------------------------------------------------ day / night
 const sunDir = new THREE.Vector3(); let envTimer = 0, lampTimer = 0, lastNight = -1;
 function updateSky(dt) {
@@ -279,7 +292,7 @@ function updateSky(dt) {
   stars.position.copy(camera.position);
   // emissives
   const nightAmt = smoothstep(0.12, -0.08, elev);
-  for (const nm of nightMats) nm.mat.emissiveIntensity = nm.max * nightAmt;
+  for (const nm of nightMats) nm.mat.emissiveIntensity = Math.max(nm.min || 0, nm.max * nightAmt);
   headMat.emissiveIntensity = 0.4 + 3.5 * nightAmt; tailMat.emissiveIntensity = 0.6 + 2.5 * nightAmt;
   bloom.strength = 0.25 + nightAmt * 0.55;
   if (bike) bike.headlight.intensity = 5 + nightAmt * 55;
@@ -300,7 +313,8 @@ function updateSky(dt) {
   // environment map refresh
   if (hdrTex) {
     scene.backgroundIntensity = lerp(0.015, 1, day) * lerp(1, 0.75, golden);
-    scene.environmentIntensity = lerp(0.04, 0.8, day);
+    scene.environmentIntensity = lerp(0.02, 0.42, day) * lerp(1, 0.6, golden);
+    setEnvIntensity(scene.environmentIntensity);
     scene.backgroundRotation && (scene.backgroundRotation.y = 0);
     envTimer = 1e9;
   }
