@@ -1,6 +1,28 @@
 import * as THREE from 'three';
 import { rand } from './util.js';
 
+export const IMG = {};
+const FILES = ['asphalt_02_diff', 'asphalt_02_nor', 'asphalt_02_rough', 'leafy_grass_diff', 'leafy_grass_nor', 'forest_ground_04_diff', 'forest_ground_04_nor', 'stony_dirt_path_diff', 'stony_dirt_path_nor', 'concrete_pavers_diff', 'concrete_pavers_nor', 'brick_wall_02_diff', 'concrete_wall_004_diff', 'white_plaster_02_diff', 'pine_bark_diff'];
+export function preloadImages(onProgress) {
+  let n = 0;
+  return Promise.all(FILES.map((f) => new Promise((res) => {
+    const im = new Image(); im.onload = () => { IMG[f] = im; onProgress && onProgress(++n, FILES.length); res(); }; im.onerror = () => res(); im.src = `assets/tex/${f}.jpg`;
+  })));
+}
+const texCache = {};
+export function imgTex(name, rx = 1, ry = 1, srgb = true) {
+  const im = IMG[name]; if (!im) return null;
+  const t = new THREE.Texture(im); t.needsUpdate = true;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rx, ry); t.anisotropy = 8;
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function tileImg(x, name, W, H, tilePx, alpha = 1) {
+  const im = IMG[name]; if (!im) return false;
+  x.globalAlpha = alpha;
+  for (let yy = 0; yy < H; yy += tilePx) for (let xx = 0; xx < W; xx += tilePx) x.drawImage(im, xx, yy, tilePx, tilePx);
+  x.globalAlpha = 1; return true;
+}
 const C = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
 export function tex(c, srgb = true, rx = 1, ry = 1) {
   const t = new THREE.CanvasTexture(c);
@@ -45,24 +67,25 @@ export function asphaltBump() {
 
 // Road texture: u across width, v along length (one repeat = 12 m)
 export function roadTex(kind, w) {
-  const W = 256, H = 512, c = C(W, H), x = c.getContext('2d');
+  const W = 1024, H = 1024, c = C(W, H), x = c.getContext('2d');
   const ppm = W / w; // pixels per meter across
   x.fillStyle = kind === 'hwy' ? '#3b3c3f' : '#36373a'; x.fillRect(0, 0, W, H);
-  blotches(x, W, H, 30, 'rgba(20,20,22,A)', 10, 50, 0.35);
-  blotches(x, W, H, 12, 'rgba(90,90,92,A)', 10, 40, 0.18);
-  speckle(x, W, H, 7000, ['#2a2a2c', '#4a4a4d', '#5a5a5c', '#222'], 1, 2.5, 0.8);
+  if (tileImg(x, 'asphalt_02_diff', W, H, Math.round(3.5 * ppm))) { x.fillStyle = 'rgba(30,30,34,0.35)'; x.fillRect(0, 0, W, H); }
+  blotches(x, W, H, 30, 'rgba(20,20,22,A)', 40, 160, 0.25);
+  blotches(x, W, H, 12, 'rgba(90,90,92,A)', 40, 120, 0.1);
   // tyre tracks (darker strips)
   const lanes = kind === 'city' ? [-6, -2.2, 2.2, 6] : kind === 'hwy' ? [-7.2, -3.2, 3.2, 7.2] : [-2.6, 2.6];
   for (const l of lanes) for (const o of [-0.8, 0.8]) {
     x.fillStyle = 'rgba(15,15,15,0.18)';
     x.fillRect(W / 2 + (l + o) * ppm - 0.35 * ppm, 0, 0.7 * ppm, H);
+    x.fillStyle = 'rgba(0,0,0,0.12)'; x.fillRect(W / 2 + (l + o) * ppm - 0.15 * ppm, 0, 0.3 * ppm, H);
   }
   const line = (m, wm, col, dash) => {
     x.fillStyle = col; const px = W / 2 + m * ppm - (wm * ppm) / 2;
     if (!dash) x.fillRect(px, 0, wm * ppm, H);
     else x.fillRect(px, 0, wm * ppm, H * 0.25);
   };
-  const WH = 'rgba(235,235,230,0.9)', YE = 'rgba(230,180,40,0.9)';
+  const WH = 'rgba(225,225,218,0.82)', YE = 'rgba(215,165,40,0.85)';
   const half = w / 2;
   if (kind === 'city') {
     line(-half + 0.6, 0.15, WH); line(half - 0.6, 0.15, WH);
@@ -79,6 +102,7 @@ export function roadTex(kind, w) {
     line(-half + 0.4, 0.12, WH); line(half - 0.4, 0.12, WH);
     line(-0.12, 0.1, YE); line(0.12, 0.1, YE);
   }
+  speckle(x, W, H, 9000, ['rgba(40,40,40,1)'], 1, 3, 0.35);
   // cracks
   x.strokeStyle = 'rgba(15,15,15,0.5)'; x.lineWidth = 1;
   for (let i = 0; i < 6; i++) {
@@ -96,6 +120,7 @@ export function plainAsphalt() {
   return tex(c);
 }
 export function grassTex() {
+  if (IMG.leafy_grass_diff) return imgTex('leafy_grass_diff');
   const c = C(512, 512), x = c.getContext('2d');
   x.fillStyle = '#4f6b2c'; x.fillRect(0, 0, 512, 512);
   blotches(x, 512, 512, 40, 'rgba(110,120,50,A)', 20, 90, 0.35);
@@ -123,6 +148,7 @@ export function detailTex() {
   return tex(c);
 }
 export function sidewalkTex() {
+  if (IMG.concrete_pavers_diff) return imgTex('concrete_pavers_diff');
   const c = C(256, 256), x = c.getContext('2d');
   x.fillStyle = '#9d9b95'; x.fillRect(0, 0, 256, 256);
   blotches(x, 256, 256, 25, 'rgba(70,70,65,A)', 10, 40, 0.2);
@@ -132,6 +158,7 @@ export function sidewalkTex() {
   return tex(c);
 }
 export function dirtTex() {
+  if (IMG.stony_dirt_path_diff) return imgTex('stony_dirt_path_diff');
   const c = C(256, 256), x = c.getContext('2d');
   x.fillStyle = '#6b5236'; x.fillRect(0, 0, 256, 256);
   blotches(x, 256, 256, 30, 'rgba(50,35,20,A)', 10, 40, 0.4);
@@ -163,7 +190,9 @@ export function facadeTex(i) {
   const e = C(S, S), ex = e.getContext('2d');
   ex.fillStyle = '#000'; ex.fillRect(0, 0, S, S);
   x.fillStyle = f.wall; x.fillRect(0, 0, S, S);
-  if (i === 1) { // brick pattern
+  const wallImg = i === 1 ? 'brick_wall_02_diff' : i === 0 ? 'concrete_wall_004_diff' : i === 4 ? 'white_plaster_02_diff' : null;
+  if (wallImg && tileImg(x, wallImg, S, S, S / 2)) { x.globalAlpha = 0.25; x.fillStyle = f.wall; x.fillRect(0, 0, S, S); x.globalAlpha = 1; }
+  else if (i === 1) { // brick pattern
     for (let yy = 0; yy < S; yy += 6) for (let xx = (yy / 6) % 2 ? 0 : 6; xx < S; xx += 12) {
       x.fillStyle = `rgba(${100 + rand() * 60 | 0},${50 + rand() * 25 | 0},${35 + rand() * 20 | 0},0.6)`; x.fillRect(xx, yy, 11, 5);
     }
@@ -222,6 +251,7 @@ export function roofTex() {
   return tex(c);
 }
 export function barkTex() {
+  if (IMG.pine_bark_diff) return imgTex('pine_bark_diff');
   const c = C(128, 256), x = c.getContext('2d');
   x.fillStyle = '#4a3a2c'; x.fillRect(0, 0, 128, 256);
   for (let i = 0; i < 300; i++) { x.fillStyle = `rgba(${20 + rand() * 50 | 0},${15 + rand() * 30 | 0},10,0.6)`; x.fillRect(rand() * 128, rand() * 256, 2 + rand() * 4, 10 + rand() * 40); }

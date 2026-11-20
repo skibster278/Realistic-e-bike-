@@ -187,27 +187,29 @@ export function buildWorld(scene) {
   const addMesh = (geo, mat, cast = true, recv = true) => { const m = new THREE.Mesh(geo, mat); m.castShadow = cast; m.receiveShadow = recv; group.add(m); return m; };
 
   // --- base ground
-  const grassMap = TX.grassTex(); grassMap.repeat.set(900, 900);
-  const ground = addMesh(new THREE.PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: grassMap, roughness: 1, color: 0xb8c0a0 }), false, true);
-  ground.position.y = -0.06;
+  const grassMap = TX.grassTex(); grassMap.repeat.set(1500, 1500);
+  const grassNor = TX.imgTex('leafy_grass_nor', 1500, 1500, false);
+  const ground = addMesh(new THREE.PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: grassMap, normalMap: grassNor, roughness: 1, color: 0xc8c8b0 }), false, true);
+  ground.position.y = -0.12;
 
   // --- city concrete pad
-  const sw = TX.sidewalkTex(); sw.repeat.set(640 / 6, 640 / 6);
-  const pad = addMesh(new THREE.PlaneGeometry(640, 640).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: sw, roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }), false, true);
-  pad.position.y = 0.01;
+  const sw = TX.sidewalkTex(); sw.repeat.set(320, 320);
+  const pad = addMesh(new THREE.PlaneGeometry(640, 640).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: sw, normalMap: TX.imgTex('concrete_pavers_nor', 160, 160, false), roughness: 0.95 }), false, true);
+  pad.position.y = 0.02;
 
   // --- roads
   const bump = TX.asphaltBump();
   const roadMats = {};
   for (const k of Object.keys(WID)) {
-    roadMats[k] = new THREE.MeshStandardMaterial({ map: TX.roadTex(k, WID[k]), roughness: 0.88, metalness: 0, bumpMap: bump, bumpScale: 0.6, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    const nor = TX.imgTex('asphalt_02_nor', WID[k] / 3.5, 12 / 3.5, false), rough = TX.imgTex('asphalt_02_rough', WID[k] / 3.5, 12 / 3.5, false);
+    roadMats[k] = new THREE.MeshStandardMaterial({ map: TX.roadTex(k, WID[k]), roughness: 1, roughnessMap: rough, metalness: 0, normalMap: nor, normalScale: new THREE.Vector2(0.8, 0.8) });
   }
   const byKind = {};
   for (const s of roads) {
     const g = new THREE.PlaneGeometry(s.w, s.len).rotateX(-Math.PI / 2);
     const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setY(i, uv.getY(i) * s.len / 12);
     g.rotateY(Math.atan2(s.dx, s.dz));
-    g.translate((s.ax + s.bx) / 2, 0.03, (s.az + s.bz) / 2);
+    g.translate((s.ax + s.bx) / 2, 0.06, (s.az + s.bz) / 2);
     (byKind[s.kind] = byKind[s.kind] || []).push(g);
   }
   for (const k in byKind) addMesh(merge(byKind[k]), roadMats[k], false, true);
@@ -217,9 +219,9 @@ export function buildWorld(scene) {
   for (const n of nodes.values()) {
     if (n.links.length < 2) continue;
     const w = Math.max(...n.links.map((l) => l.seg.w));
-    const g = new THREE.PlaneGeometry(w, w).rotateX(-Math.PI / 2); g.translate(n.x, 0.05, n.z); ip.push(g);
+    const g = new THREE.PlaneGeometry(w, w).rotateX(-Math.PI / 2); g.translate(n.x, 0.09, n.z); ip.push(g);
   }
-  addMesh(merge(ip), new THREE.MeshStandardMaterial({ map: pa, roughness: 0.9, bumpMap: bump, bumpScale: 0.6, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }), false, true);
+  addMesh(merge(ip), new THREE.MeshStandardMaterial({ map: pa, roughness: 0.9, bumpMap: bump, bumpScale: 0.6 }), false, true);
 
   // highway medians + guard rails
   const med = [], rails = [];
@@ -343,7 +345,7 @@ export function buildWorld(scene) {
       const dx = cx + w / 2 - 3;
       const z0 = cz + fz * d / 2, z1 = streetZ - fz * 5;
       const dl = Math.abs(z1 - z0);
-      drives.push(new THREE.PlaneGeometry(4, dl).rotateX(-Math.PI / 2).translate(dx, 0.02, (z0 + z1) / 2));
+      drives.push(new THREE.PlaneGeometry(4, dl).rotateX(-Math.PI / 2).translate(dx, 0.04, (z0 + z1) / 2));
       if (rand() < 0.35) parkedSpots.push({ x: dx, z: (z0 + z1) / 2, yaw: fz > 0 ? 0 : Math.PI });
       // yard trees
       for (let k = 0; k < 3; k++) {
@@ -357,7 +359,7 @@ export function buildWorld(scene) {
   addMesh(merge(walls), houseMat);
   addMesh(merge(roofs), roofMat);
   const drMap = TX.sidewalkTex(); drMap.repeat.set(1, 4);
-  addMesh(merge(drives), new THREE.MeshStandardMaterial({ map: drMap, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }), false, true);
+  addMesh(merge(drives), new THREE.MeshStandardMaterial({ map: drMap, roughness: 0.9 }), false, true);
 
   // --- forest terrain mesh
   const FW = FOREST.x1 - FOREST.x0, FD = FOREST.z1 - FOREST.z0;
@@ -378,8 +380,40 @@ export function buildWorld(scene) {
     cols[i * 3] = tmp.r; cols[i * 3 + 1] = tmp.g; cols[i * 3 + 2] = tmp.b;
   }
   tg.setAttribute('color', new THREE.BufferAttribute(cols, 3)); tg.computeVertexNormals();
-  const det = TX.detailTex(); det.repeat.set(FW / 6, FD / 6);
-  addMesh(tg, new THREE.MeshStandardMaterial({ map: det, vertexColors: true, roughness: 1 }), false, true);
+  const fgD = TX.imgTex('forest_ground_04_diff');
+  if (fgD) {
+    // blend real forest-floor / dirt-path / grass photo textures by vertex weights
+    const w = new Float32Array(p.count * 3);
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), z = p.getZ(i), td = trailDist(x, z);
+      const jp = x > JUMPPARK.x0 - 4 && x < JUMPPARK.x1 + 4 && z > JUMPPARK.z0 - 4 && z < JUMPPARK.z1 + 4;
+      const dirt = jp ? 1 : 1 - smoothstep(1.4, 3.4, td);
+      const grass = (1 - dirt) * smoothstep(0.35, 0.65, fbm(x * 0.008 + 4, z * 0.008, 3));
+      w[i * 3] = dirt; w[i * 3 + 1] = grass; w[i * 3 + 2] = 0.8 + fbm(x * 0.05, z * 0.05, 2) * 0.4;
+    }
+    tg.setAttribute('blend', new THREE.BufferAttribute(w, 3));
+    const mat = new THREE.MeshStandardMaterial({ map: fgD, normalMap: TX.imgTex('forest_ground_04_nor', 1, 1, false), roughness: 1 });
+    const T = 1 / 3.0;
+    const dirtT = TX.imgTex('stony_dirt_path_diff'), grassT = TX.imgTex('leafy_grass_diff'), dirtN = TX.imgTex('stony_dirt_path_nor', 1, 1, false);
+    mat.onBeforeCompile = (sh) => {
+      sh.uniforms.dirtMap = { value: dirtT }; sh.uniforms.grassMap = { value: grassT }; sh.uniforms.dirtNor = { value: dirtN };
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 blend; varying vec3 vBlend; varying vec2 vW;')
+        .replace('#include <uv_vertex>', '#include <uv_vertex>\nvBlend = blend; vW = (modelMatrix * vec4(position,1.0)).xz;');
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform sampler2D dirtMap; uniform sampler2D grassMap; uniform sampler2D dirtNor; varying vec3 vBlend; varying vec2 vW;')
+        .replace('#include <map_fragment>', `vec2 tuv = vW * ${T.toFixed(4)};
+          vec4 cF = texture2D(map, tuv); vec4 cF2 = texture2D(map, tuv * 0.13 + 0.37);
+          cF = mix(cF, cF2, 0.35);
+          vec4 cD = texture2D(dirtMap, tuv * 1.2); vec4 cG = texture2D(grassMap, tuv * 1.4);
+          vec4 tc = mix(mix(cF, cG, vBlend.g), cD, vBlend.r);
+          diffuseColor *= tc * vec4(vec3(vBlend.b), 1.0);`)
+        .replace('#include <normal_fragment_maps>', `vec3 mapN = mix(texture2D(normalMap, vW * ${T.toFixed(4)}).xyz, texture2D(dirtNor, vW * ${(T * 1.2).toFixed(4)}).xyz, vBlend.r) * 2.0 - 1.0;
+          mapN.xy *= normalScale; normal = normalize(tbn * mapN);`);
+    };
+    addMesh(tg, mat, false, true);
+  } else {
+    const det = TX.detailTex(); det.repeat.set(FW / 6, FD / 6);
+    addMesh(tg, new THREE.MeshStandardMaterial({ map: det, vertexColors: true, roughness: 1 }), false, true);
+  }
 
   // --- ramps
   const rg = [];
@@ -394,7 +428,8 @@ export function buildWorld(scene) {
     g.rotateY(r.yaw); g.translate(r.x, terrainH(r.x, r.z) - 0.02, r.z);
     rg.push(g);
   }
-  const dirtMat = new THREE.MeshStandardMaterial({ map: TX.dirtTex(), roughness: 1 });
+  const dirtMap = TX.dirtTex(); dirtMap.repeat.set(0.4, 0.4);
+  const dirtMat = new THREE.MeshStandardMaterial({ map: dirtMap, roughness: 1 });
   const woodMat = new THREE.MeshStandardMaterial({ map: TX.woodTex(), roughness: 0.8 });
   const forestR = [], plazaR = [];
   ramps.forEach((r, i) => (r.x < -400 ? forestR : plazaR).push(rg[i]));
@@ -481,9 +516,9 @@ export function buildWorld(scene) {
 }
 
 function cityPark(group, addMesh) {
-  const g = new THREE.PlaneGeometry(76, 76).rotateX(-Math.PI / 2).translate(50, 0.04, 50);
+  const g = new THREE.PlaneGeometry(76, 76).rotateX(-Math.PI / 2).translate(50, 0.05, 50);
   const gm = TX.grassTex(); gm.repeat.set(8, 8);
-  addMesh(g, new THREE.MeshStandardMaterial({ map: gm, roughness: 1, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), false, true);
+  addMesh(g, new THREE.MeshStandardMaterial({ map: gm, roughness: 1 }), false, true);
 }
 
 function pineGeo() {

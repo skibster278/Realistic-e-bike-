@@ -6,6 +6,8 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+import { preloadImages } from './textures.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { buildWorld, lamps, nightMats, biomeAt, makeMapCanvas, groundH, FOREST } from './world.js';
 import { BIKES, buildBike } from './bikes.js';
@@ -57,7 +59,7 @@ const lampLights = [];
 for (let i = 0; i < 10; i++) { const l = new THREE.PointLight(0xffc98a, 0, 38, 1.4); scene.add(l); lampLights.push(l); }
 const pmrem = new THREE.PMREMGenerator(renderer);
 const envScene = new THREE.Scene(); const envSky = new Sky(); envSky.scale.setScalar(1000); envScene.add(envSky);
-let envRT = null;
+let envRT = null, hdrTex = null, hdrEnv = null;
 
 // post
 const rt = new THREE.WebGLRenderTarget(innerWidth * pixelRatio, innerHeight * pixelRatio, { type: THREE.HalfFloatType, samples: 4 });
@@ -253,7 +255,7 @@ function updateSky(dt) {
   sun.intensity = elev > -0.05 ? 4.2 * smoothstep(-0.05, 0.15, elev) : 0.25 * smoothstep(0.05, 0.3, moonDir.y);
   hemi.intensity = lerp(0.07, 0.45, day);
   hemi.color.setRGB(lerp(0.35, 0.74, day), lerp(0.42, 0.84, day), lerp(0.7, 1, day));
-  const fogDay = new THREE.Color(0xb9cde0).lerp(new THREE.Color(0xe0b89a), golden * 0.7);
+  const fogDay = new THREE.Color(hdrTex ? 0xc4d2e0 : 0xb9cde0).lerp(new THREE.Color(0xe0b89a), golden * 0.7);
   scene.fog.color.copy(fogDay).lerp(new THREE.Color(0x0a0f1a), night);
   scene.fog.near = lerp(60, 250, day); scene.fog.far = lerp(1100, 3300, day);
   renderer.toneMappingExposure = lerp(1.3, 0.72, day);
@@ -275,6 +277,12 @@ function updateSky(dt) {
   }
   for (const l of lampLights) l.intensity = 40 * nightAmt;
   // environment map refresh
+  if (hdrTex) {
+    scene.backgroundIntensity = lerp(0.015, 1, day) * lerp(1, 0.75, golden);
+    scene.environmentIntensity = lerp(0.04, 0.8, day);
+    scene.backgroundRotation && (scene.backgroundRotation.y = 0);
+    envTimer = 1e9;
+  }
   envTimer -= dt;
   if (envTimer <= 0) {
     envTimer = 4;
@@ -438,7 +446,7 @@ function loadRealModels() {
     const u = urls.shift(); if (!u) return;
     loader.load(u, ok, undefined, () => tryLoad(urls, ok));
   };
-  tryLoad(['https://threejs.org/examples/models/gltf/ferrari.glb', 'https://raw.githubusercontent.com/mrdoob/three.js/r160/examples/models/gltf/ferrari.glb'], (g) => {
+  tryLoad(['assets/models/ferrari.glb', 'https://threejs.org/examples/models/gltf/ferrari.glb', 'https://raw.githubusercontent.com/mrdoob/three.js/r160/examples/models/gltf/ferrari.glb'], (g) => {
     const car = g.scene;
     const box = new THREE.Box3().setFromObject(car), size = box.getSize(new THREE.Vector3());
     const s = 4.5 / Math.max(size.x, size.z); car.scale.setScalar(s);
@@ -453,7 +461,7 @@ function loadRealModels() {
     }
     toast('Loaded real car models');
   });
-  tryLoad(['https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Fox/glTF-Binary/Fox.glb', 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/Fox/glTF-Binary/Fox.glb'], (g) => {
+  tryLoad(['assets/models/fox.glb', 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Fox/glTF-Binary/Fox.glb', 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/Fox/glTF-Binary/Fox.glb'], (g) => {
     const box = new THREE.Box3().setFromObject(g.scene), size = box.getSize(new THREE.Vector3());
     const s = 1.0 / Math.max(size.x, size.z);
     g.scene.traverse((o) => { if (o.isMesh) o.castShadow = true; });
@@ -463,6 +471,12 @@ function loadRealModels() {
 
 // ------------------------------------------------------------ boot
 (async function boot() {
+  status('Loading photo textures…'); await preloadImages((n, t) => status(`Loading photo textures… ${n}/${t}`));
+  status('Loading HDRI sky…');
+  await new Promise((res) => new RGBELoader().load('assets/hdri/sky.hdr', (t) => {
+    t.mapping = THREE.EquirectangularReflectionMapping; hdrTex = t;
+    hdrEnv = pmrem.fromEquirectangular(t).texture; scene.background = t; scene.environment = hdrEnv; sky.visible = false; res();
+  }, undefined, () => res()));
   status('Generating world…'); await tick();
   buildWorld(scene);
   status('Spawning traffic…'); await tick();
