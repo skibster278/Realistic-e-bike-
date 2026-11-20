@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { clamp, smoothstep, fbm, rand, rr, pick, merge, colorize, jitterVerts, tubeGeo, boxGeo, V, setSeed } from './util.js';
 import * as TX from './textures.js';
+import { makeImpostorMesh } from './impostor.js';
 
 // ---------------------------------------------------------------- layout
 export const FOREST = { x0: -1100, x1: -370, z0: -760, z1: 760 };
@@ -181,7 +182,8 @@ export const lamps = []; // {x,y,z}
 export const nightMats = []; // {mat, max}
 export const parkedSpots = []; // {x,z,yaw}
 
-export function buildWorld(scene) {
+export function buildWorld(scene, assets) {
+  const cityRoofs = [];
   setSeed(7);
   const group = new THREE.Group(); scene.add(group);
   const addMesh = (geo, mat, cast = true, recv = true) => { const m = new THREE.Mesh(geo, mat); m.castShadow = cast; m.receiveShadow = recv; group.add(m); return m; };
@@ -301,7 +303,8 @@ export function buildWorld(scene) {
       facades[style].geos.push(g);
       addBox(cx - w / 2, cx + w / 2, cz - d / 2, cz + d / 2, h);
       // roof units
-      for (let k = 0; k < 3; k++) roofBits.push(boxGeo(rr(2, 5), rr(1, 2.5), rr(2, 5), cx + rr(-w / 3, w / 3), h + 0.8, cz + rr(-d / 3, d / 3)));
+      cityRoofs.push([cx, h, cz, w, d]);
+      for (let k = 0; k < 1; k++) roofBits.push(boxGeo(rr(2, 5), rr(1, 2.5), rr(2, 5), cx + rr(-w / 3, w / 3), h + 0.8, cz + rr(-d / 3, d / 3)));
       if (h > 90) roofBits.push(new THREE.CylinderGeometry(0.15, 0.15, 12).translate(cx, h + 6, cz));
     }
   }
@@ -388,8 +391,8 @@ export function buildWorld(scene) {
       const x = p.getX(i), z = p.getZ(i), td = trailDist(x, z);
       const jp = x > JUMPPARK.x0 - 4 && x < JUMPPARK.x1 + 4 && z > JUMPPARK.z0 - 4 && z < JUMPPARK.z1 + 4;
       const dirt = jp ? 1 : 1 - smoothstep(1.4, 3.4, td);
-      const grass = (1 - dirt) * smoothstep(0.35, 0.65, fbm(x * 0.008 + 4, z * 0.008, 3));
-      w[i * 3] = dirt; w[i * 3 + 1] = grass; w[i * 3 + 2] = 0.8 + fbm(x * 0.05, z * 0.05, 2) * 0.4;
+      const grass = (1 - dirt) * (0.45 + 0.55 * smoothstep(0.3, 0.6, fbm(x * 0.008 + 4, z * 0.008, 3)));
+      w[i * 3] = dirt; w[i * 3 + 1] = grass; w[i * 3 + 2] = 0.7 + fbm(x * 0.05, z * 0.05, 2) * 0.35;
     }
     tg.setAttribute('blend', new THREE.BufferAttribute(w, 3));
     const mat = new THREE.MeshStandardMaterial({ map: fgD, normalMap: TX.imgTex('forest_ground_04_nor', 1, 1, false), roughness: 1 });
@@ -404,7 +407,7 @@ export function buildWorld(scene) {
           vec4 cF = texture2D(map, tuv); vec4 cF2 = texture2D(map, tuv * 0.13 + 0.37);
           cF = mix(cF, cF2, 0.35);
           vec4 cD = texture2D(dirtMap, tuv * 1.2); vec4 cG = texture2D(grassMap, tuv * 1.4);
-          vec4 tc = mix(mix(cF, cG, vBlend.g), cD, vBlend.r);
+          vec4 tc = mix(mix(cF, cG * vec4(0.85, 0.95, 0.7, 1.0), vBlend.g), cD, vBlend.r);
           diffuseColor *= tc * vec4(vec3(vBlend.b), 1.0);`)
         .replace('#include <normal_fragment_maps>', `vec3 mapN = mix(texture2D(normalMap, vW * ${T.toFixed(4)}).xyz, texture2D(dirtNor, vW * ${(T * 1.2).toFixed(4)}).xyz, vBlend.r) * 2.0 - 1.0;
           mapN.xy *= normalScale; normal = normalize(tbn * mapN);`);
@@ -484,21 +487,82 @@ export function buildWorld(scene) {
     });
     im.castShadow = cast; im.receiveShadow = true; group.add(im); return im;
   };
-  const vegMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, flatShading: false });
-  inst(pine, vegMat, pines);
-  inst(leafy, vegMat, leafs);
-  inst(rockG, new THREE.MeshStandardMaterial({ color: 0x8a867c, roughness: 0.95, flatShading: true }), rocks);
-  inst(bushG, new THREE.MeshStandardMaterial({ color: 0x3f5a24, roughness: 1, flatShading: true }), bushes, true, false);
-  // grass tufts near trails / forest floor
-  const tuftG = merge([0, 1, 2].map((k) => new THREE.PlaneGeometry(0.5, 0.45).translate(0, 0.22, 0).rotateY(k * Math.PI / 3)));
-  const tufts = [];
-  for (let i = 0; i < 12000; i++) {
-    const x = rr(FOREST.x0, FOREST.x1), z = rr(FOREST.z0, FOREST.z1);
-    const td = trailDist(x, z); if (td < 2.2 || Math.abs(z) < 7) continue;
-    tufts.push([x, terrainH(x, z) - 0.03, z, rr(0.6, 1.4)]);
+  const A = assets || {};
+  const glbInst = (gltf, list, { cast = true, yScaleJitter = 0.15, pick = null, norm = false } = {}) => {
+    const out = [], geos = [];
+    gltf.scene.updateMatrixWorld(true);
+    for (const top of gltf.scene.children) {
+      if (pick && !pick.includes(top.name)) continue;
+      top.traverse((o) => { if (o.isMesh) geos.push([o.geometry.clone().applyMatrix4(o.matrixWorld), o.material]); });
+    }
+    const bb = new THREE.Box3(); for (const [g] of geos) { g.computeBoundingBox(); bb.union(g.boundingBox); }
+    const cx = (bb.min.x + bb.max.x) / 2, cz = (bb.min.z + bb.max.z) / 2;
+    const sz = bb.getSize(V(0, 0, 0)), nk = norm ? 1 / Math.max(sz.x, sz.z) : 1;
+    for (const [g, m] of geos) { g.translate(-cx, -bb.min.y, -cz); if (norm) g.scale(nk, nk, nk); out.push(new THREE.InstancedMesh(g, m, list.length)); }
+    list.forEach((t, i) => {
+      q.setFromAxisAngle(up, t[4] ?? rand() * 6.28);
+      m4.compose(V(t[0], t[1], t[2]), q, V(t[3], t[3] * rr(1 - yScaleJitter, 1 + yScaleJitter), t[3]));
+      for (const im of out) im.setMatrixAt(i, m4);
+    });
+    for (const im of out) { im.castShadow = cast; im.receiveShadow = true; group.add(im); }
+    return out;
+  };
+  const split = (list, n) => { const o = Array.from({ length: n }, () => []); list.forEach((t) => o[(rand() * n) | 0].push(t)); return o; };
+  if (A.imp && A.imp.pine1) {
+    const pv = split(pines, 3);
+    ['pine1', 'pine2', 'pine3'].forEach((k, i) => { const I = A.imp[k]; if (I) group.add(makeImpostorMesh(pv[i].map((t) => [t[0], t[1], t[2], t[3] * 0.78]), I.lit, I.nrm, I.meta)); });
+    const lv = split(leafs.filter((t) => !t.hood), 2);
+    if (A.imp.jacaranda) group.add(makeImpostorMesh(lv[0].concat(leafyHood).map((t) => [t[0], t[1], t[2], t[3] * 0.55]), A.imp.jacaranda.lit, A.imp.jacaranda.nrm, A.imp.jacaranda.meta));
+    if (A.imp.island) group.add(makeImpostorMesh(lv[1].map((t) => [t[0], t[1], t[2], t[3] * 2.2]), A.imp.island.lit, A.imp.island.nrm, A.imp.island.meta));
+  } else {
+    const vegMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, flatShading: false });
+    inst(pine, vegMat, pines);
+    inst(leafy, vegMat, leafs);
   }
-  const tuftMat = new THREE.MeshStandardMaterial({ color: 0x5f7a32, roughness: 1, side: THREE.DoubleSide });
-  inst(tuftG, tuftMat, tufts, true, false);
+  if (A.props && A.props.rock_07) {
+    const rv = split(rocks, 3);
+    glbInst(A.props.rock_07, rv[0].map((t) => [t[0], t[1] - 0.15 * t[3], t[2], t[3] * 1.6]), { norm: true });
+    glbInst(A.props.rock_09, rv[1].map((t) => [t[0], t[1] - 0.15 * t[3], t[2], t[3] * 1.6]), { norm: true });
+    glbInst(A.props.boulder_01, rv[2].filter((t, i) => i % 2 === 0).map((t) => [t[0], t[1] - 0.3 * t[3], t[2], t[3] * 3]), { norm: true });
+  } else inst(rockG, new THREE.MeshStandardMaterial({ color: 0x8a867c, roughness: 0.95, flatShading: true }), rocks);
+  if (A.props && A.props.fern_02) split(bushes, 4).forEach((l, i) => glbInst(A.props.fern_02, l.map((t) => [t[0], t[1] - 0.05, t[2], t[3] * 1.6]), { cast: false, pick: [['fern_02_a', 'fern_02_b', 'fern_02_c', 'fern_02_d'][i]] }));
+  else inst(bushG, new THREE.MeshStandardMaterial({ color: 0x3f5a24, roughness: 1, flatShading: true }), bushes, true, false);
+  if (A.props && A.props.dead_tree_trunk) {
+    const logs = [];
+    for (let i = 0; i < 160; i++) { const x = rr(FOREST.x0, FOREST.x1), z = rr(FOREST.z0, FOREST.z1); if (!clearOf(x, z, 3)) continue; logs.push([x, terrainH(x, z) - 0.1, z, rr(0.8, 1.3)]); addCircle(x, z, 1.0, 1.2); }
+    glbInst(A.props.dead_tree_trunk, logs);
+  }
+  if (!A.grass) {
+    const tuftG = merge([0, 1, 2].map((k) => new THREE.PlaneGeometry(0.5, 0.45).translate(0, 0.22, 0).rotateY(k * Math.PI / 3)));
+    const tufts = [];
+    for (let i = 0; i < 12000; i++) {
+      const x = rr(FOREST.x0, FOREST.x1), z = rr(FOREST.z0, FOREST.z1);
+      const td = trailDist(x, z); if (td < 2.2 || Math.abs(z) < 7) continue;
+      tufts.push([x, terrainH(x, z) - 0.03, z, rr(0.6, 1.4)]);
+    }
+    inst(tuftG, new THREE.MeshStandardMaterial({ color: 0x5f7a32, roughness: 1, side: THREE.DoubleSide }), tufts, true, false);
+  }
+  // --- city props (photoscanned)
+  if (A.props && A.props.fire_hydrant) {
+    const hyd = [], cans = [], benches = [], ac = [];
+    for (const s2 of roads) {
+      if (s2.kind !== 'city' && s2.kind !== 'hood') continue;
+      if (s2.ax > CITY.x1 + 1 && s2.kind === 'city') continue;
+      for (let t = 20; t < s2.len - 20; t += s2.kind === 'city' ? 26 : 60) for (const side of [-1, 1]) {
+        const rx = -s2.dz * side, rz = s2.dx * side, off = s2.w / 2 + (s2.kind === 'city' ? 2.8 : 1.5);
+        const x = s2.ax + s2.dx * t + rx * off, z = s2.az + s2.dz * t + rz * off;
+        const r = rand();
+        if (r < 0.18) { hyd.push([x, 0.02, z, 1]); addCircle(x, z, 0.25, 1); }
+        else if (r < 0.38 && s2.kind === 'city') { cans.push([x, 0.02, z, 1]); addCircle(x, z, 0.35, 1); }
+        else if (r < 0.5 && s2.kind === 'city') { benches.push([x + rx * 0.8, 0.02, z + rz * 0.8, 1, Math.atan2(rx, rz)]); }
+      }
+    }
+    glbInst(A.props.fire_hydrant, hyd, { yScaleJitter: 0, pick: ['fire_hydrant', 'fire_hydrant_cap_01'] });
+    glbInst(A.props.metal_trash_can, cans, { yScaleJitter: 0, pick: ['metal_trash_can', 'metal_trash_can_handle_left', 'metal_trash_can_handle_right'] });
+    glbInst(A.props.modular_street_seating, benches, { yScaleJitter: 0, pick: ['crossbar', 'legs_double', 'legs_single', 'back_support_r', 'back_support_l', 'arm_rest_01', 'arm_rest_02', 'seat', 'seat_back'] });
+    for (const b of cityRoofs) for (let k = 0; k < 2; k++) ac.push([b[0] + rr(-b[3] / 3, b[3] / 3), b[1], b[2] + rr(-b[4] / 3, b[4] / 3), 1.5]);
+    glbInst(A.props.exterior_aircon_unit, ac, { yScaleJitter: 0, pick: ['exterior_aircon_unit'] });
+  }
 
   // --- distant mountains
   const mg = new THREE.CylinderGeometry(3200, 3300, 400, 160, 6, true);

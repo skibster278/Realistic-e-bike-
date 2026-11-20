@@ -8,6 +8,9 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { preloadImages } from './textures.js';
+import { loadImpostor, IMP_UNIFORMS } from './impostor.js';
+import { makeGrass, makeGroundData } from './grass.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { buildWorld, lamps, nightMats, biomeAt, makeMapCanvas, groundH, FOREST } from './world.js';
 import { BIKES, buildBike } from './bikes.js';
@@ -149,6 +152,7 @@ function crashSound() {
 }
 
 // ------------------------------------------------------------ game state
+let grass = null;
 let started = false, camMode = 0, timeOfDay = 17.3, bigMap = false;
 const DAY_MINUTES = 14; // real minutes for a full 24h cycle
 const player = new Player();
@@ -276,6 +280,12 @@ function updateSky(dt) {
     near.forEach(([, l], i) => lampLights[i].position.set(l.x, l.y, l.z));
   }
   for (const l of lampLights) l.intensity = 40 * nightAmt;
+  // impostor lighting (matches three's physically based lambert: /PI)
+  IMP_UNIFORMS.sunDir.value.copy(lightDir);
+  IMP_UNIFORMS.sunCol.value.copy(sun.color).multiplyScalar(sun.intensity / Math.PI);
+  IMP_UNIFORMS.ambCol.value.copy(hemi.color).multiplyScalar(hemi.intensity / Math.PI).addScalar((scene.environmentIntensity ?? 1) * 0.35 * (hdrTex ? 1 : 0.5));
+  IMP_UNIFORMS.fogCol.value.copy(scene.fog.color); IMP_UNIFORMS.fogNear.value = scene.fog.near; IMP_UNIFORMS.fogFar.value = scene.fog.far;
+  IMP_UNIFORMS.time.value += dt;
   // environment map refresh
   if (hdrTex) {
     scene.backgroundIntensity = lerp(0.015, 1, day) * lerp(1, 0.75, golden);
@@ -379,6 +389,7 @@ function loop() {
   }
   traffic.update(dt, player);
   wildlife.update(dt, player);
+  if (grass) grass.update(player.pos.x, player.pos.z);
   syncBike(dt);
   updateCamera(dt, inp);
   updateSky(dt);
@@ -477,8 +488,19 @@ function loadRealModels() {
     t.mapping = THREE.EquirectangularReflectionMapping; hdrTex = t;
     hdrEnv = pmrem.fromEquirectangular(t).texture; scene.background = t; scene.environment = hdrEnv; sky.visible = false; res();
   }, undefined, () => res()));
+  status('Loading photoscanned trees & props…');
+  const assets = { imp: {}, props: {} };
+  const gl = new GLTFLoader(); gl.setMeshoptDecoder(MeshoptDecoder);
+  await Promise.all([
+    ...['pine1', 'pine2', 'pine3', 'jacaranda', 'island'].map((n) => loadImpostor(n).then((r) => { if (r) assets.imp[n] = r; })),
+    ...['rock_07', 'rock_09', 'boulder_01', 'fern_02', 'dead_tree_trunk', 'fire_hydrant', 'metal_trash_can', 'modular_street_seating', 'exterior_aircon_unit', 'concrete_road_barrier'].map((n) =>
+      gl.loadAsync(`assets/models/props/${n}.glb`).then((g) => { assets.props[n] = g; }).catch((e) => console.warn('prop', n, e)))
+  ]);
+  const grassTex = await new THREE.TextureLoader().loadAsync('assets/impostors/grass_cards.webp').catch(() => null);
+  if (grassTex) { grassTex.colorSpace = THREE.SRGBColorSpace; assets.grass = true; }
   status('Generating world…'); await tick();
-  buildWorld(scene);
+  buildWorld(scene, assets);
+  if (grassTex) { grass = makeGrass(grassTex, makeGroundData(), ...(matchMedia('(pointer: coarse)').matches ? [9000, 32] : [14000, 38])); scene.add(grass); }
   status('Spawning traffic…'); await tick();
   traffic = new Traffic(scene);
   status('Releasing wildlife…'); await tick();
