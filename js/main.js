@@ -4,6 +4,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
@@ -12,7 +13,7 @@ import { loadImpostor, IMP_UNIFORMS } from './impostor.js';
 import { makeGrass, makeGroundData } from './grass.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
-import { buildWorld, lamps, nightMats, biomeAt, makeMapCanvas, groundH, FOREST, updateChunks } from './world.js';
+import { buildWorld, lamps, nightMats, biomeAt, makeMapCanvas, groundH, FOREST, updateChunks, mountainMats } from './world.js';
 import { BIKES, buildBike, setRiderAsset } from './bikes.js';
 import { Traffic, headMat, tailMat, addRealCar } from './traffic.js';
 import { Wildlife } from './animals.js';
@@ -77,7 +78,23 @@ function buildComposer() {
   bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), prev, 0.5, 0.9);
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
+  composer.addPass(new ShaderPass(GRADE));
 }
+// cinematic grade in display space: gentle S-curve, saturation, warm highlights / cool shadows, vignette
+const GRADE = {
+  uniforms: { tDiffuse: { value: null }, vig: { value: 0.32 }, sat: { value: 1.1 }, warm: { value: 0.5 } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float vig, sat, warm; varying vec2 vUv;
+    void main(){
+      vec3 c = texture2D(tDiffuse, vUv).rgb;
+      c = mix(c, c * c * (3.0 - 2.0 * c), 0.28);
+      float l = dot(c, vec3(0.299, 0.587, 0.114));
+      c = mix(vec3(l), c, sat);
+      c += warm * vec3(0.025, 0.01, -0.02) * smoothstep(0.4, 1.0, l) + warm * vec3(-0.01, 0.0, 0.02) * (1.0 - smoothstep(0.0, 0.35, l));
+      vec2 d = vUv - 0.5; c *= 1.0 - vig * dot(d, d) * 1.6;
+      gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+    }`
+};
 buildComposer();
 let useBloom = true;
 
@@ -304,6 +321,7 @@ function updateSky(dt) {
     near.forEach(([, l], i) => lampLights[i].position.set(l.x, l.y, l.z));
   }
   for (const l of lampLights) l.intensity = 75 * nightAmt;
+  for (const mm of mountainMats) mm.color.setScalar(lerp(0.08, 1, day)).lerp(new THREE.Color(1, 0.75, 0.6), golden * 0.35);
   // impostor lighting (matches three's physically based lambert: /PI)
   IMP_UNIFORMS.sunDir.value.copy(lightDir);
   IMP_UNIFORMS.sunCol.value.copy(sun.color).multiplyScalar(sun.intensity / Math.PI);
@@ -442,7 +460,7 @@ function loop() {
     dashT -= dt; if (dashT <= 0) { dashT = 0.1; drawDash(); }
     if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }
   }
-  if (useBloom) composer.render(); else renderer.render(scene, camera);
+  composer.passes[1].enabled = useBloom; composer.render();
   // adaptive quality
   frameAcc += rawDt; frames++;
   if (frameAcc > 1) {

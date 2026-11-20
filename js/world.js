@@ -182,6 +182,7 @@ export const lamps = []; // {x,y,z}
 export const nightMats = []; // {mat, max}
 export const parkedSpots = [];
 export const propChunks = [];
+export const mountainMats = [];
 export function updateChunks(px, pz) {
   for (const c of propChunks) { const v = (c.x - px) ** 2 + (c.z - pz) ** 2 < c.maxD * c.maxD; for (const m of c.meshes) m.visible = v; }
 } // {x,z,yaw}
@@ -462,25 +463,50 @@ export function buildWorld(scene, assets) {
     addMesh(tg, new THREE.MeshStandardMaterial({ map: det, vertexColors: true, roughness: 1 }), false, true);
   }
 
-  // --- ramps
-  const rg = [];
-  for (const r of ramps) {
-    const shape = new THREE.Shape();
-    if (r.type === 'kick') { shape.moveTo(0, 0); for (let k = 1; k <= 8; k++) shape.lineTo(r.len * k / 8, r.h * Math.pow(k / 8, 1.25)); shape.lineTo(r.len, 0); }
-    else { shape.moveTo(0, 0); shape.lineTo(0, r.h); shape.lineTo(r.len, 0); }
-    shape.closePath();
-    const g = new THREE.ExtrudeGeometry(shape, { depth: r.w, bevelEnabled: false });
-    g.translate(0, 0, -r.w / 2); g.rotateY(-Math.PI / 2); // shape x -> +z
-    const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / 3, uv.getY(i) / 3);
-    g.rotateY(r.yaw); g.translate(r.x, terrainH(r.x, r.z) - 0.02, r.z);
-    rg.push(g);
-  }
-  const dirtMap = TX.dirtTex(); dirtMap.repeat.set(0.4, 0.4);
-  const dirtMat = new THREE.MeshStandardMaterial({ map: dirtMap, roughness: 1 });
-  const woodMat = new THREE.MeshStandardMaterial({ map: TX.woodTex(), roughness: 0.8 });
+  // --- ramps: dirt ones are sculpted earth mounds, plaza ones are wooden kickers
   const forestR = [], plazaR = [];
-  ramps.forEach((r, i) => (r.x < -400 ? forestR : plazaR).push(rg[i]));
-  addMesh(merge(forestR), dirtMat); addMesh(merge(plazaR), woodMat);
+  for (const r of ramps) {
+    const dirt = r.x < -320;
+    let g;
+    if (dirt) {
+      const SL = 1.1, SW = 1.4, NL = 24, NW = 10;
+      const L0 = r.type === 'kick' ? -0.2 : -SL, L1 = r.type === 'kick' ? r.len + SL : r.len + 0.2;
+      g = new THREE.PlaneGeometry(1, 1, NW, NL);
+      const pp = g.attributes.position, uv = g.attributes.uv;
+      for (let i = 0; i < pp.count; i++) {
+        const u = pp.getX(i) + 0.5, v = pp.getY(i) + 0.5;
+        const lf = L0 + (L1 - L0) * v, ls = (u - 0.5) * (r.w + SW * 2);
+        let h;
+        if (r.type === 'kick') h = lf <= r.len ? r.h * Math.pow(Math.max(0, lf) / r.len, 1.25) : r.h * (1 - smoothstep(0, SL, lf - r.len));
+        else h = lf >= 0 ? r.h * (1 - lf / r.len) : r.h * (1 - smoothstep(0, SL, -lf));
+        h *= 1 - smoothstep(r.w / 2 - 0.2, r.w / 2 + SW, Math.abs(ls));
+        h += (fbm(lf * 2.1 + r.x, ls * 2.3, 2) - 0.5) * 0.06;
+        const wx = r.x + ls * r.c + lf * r.s, wz = r.z - ls * r.s + lf * r.c;
+        pp.setXYZ(i, wx, terrainH(wx, wz) + Math.max(0, h) - 0.03, wz);
+        uv.setXY(i, wx / 3, wz / 3);
+      }
+      g.deleteAttribute('normal'); g.computeVertexNormals();
+      // plane faces -z after manual positions; flip winding so it faces up
+      const idx = g.index.array; for (let i = 0; i < idx.length; i += 3) { const t = idx[i]; idx[i] = idx[i + 2]; idx[i + 2] = t; }
+      g.computeVertexNormals();
+      forestR.push(g);
+    } else {
+      const shape = new THREE.Shape();
+      if (r.type === 'kick') { shape.moveTo(0, 0); for (let k = 1; k <= 8; k++) shape.lineTo(r.len * k / 8, r.h * Math.pow(k / 8, 1.25)); shape.lineTo(r.len, 0); }
+      else { shape.moveTo(0, 0); shape.lineTo(0, r.h); shape.lineTo(r.len, 0); }
+      shape.closePath();
+      g = new THREE.ExtrudeGeometry(shape, { depth: r.w, bevelEnabled: false });
+      g.translate(0, 0, -r.w / 2); g.rotateY(-Math.PI / 2);
+      const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / 3, uv.getY(i) / 3);
+      g.rotateY(r.yaw); g.translate(r.x, terrainH(r.x, r.z) - 0.02, r.z);
+      plazaR.push(g);
+    }
+  }
+  const dirtMap = TX.dirtTex(); dirtMap.repeat.set(1, 1);
+  const dirtMat = new THREE.MeshStandardMaterial({ map: dirtMap, normalMap: TX.imgTex('stony_dirt_path_nor', 1, 1, false), roughness: 1, color: 0xb09880 });
+  const woodMat = new THREE.MeshStandardMaterial({ map: TX.woodTex(), roughness: 0.8 });
+  if (forestR.length) addMesh(merge(forestR), dirtMat, true, true);
+  if (plazaR.length) addMesh(merge(plazaR), woodMat);
 
   // --- vegetation
   const pine = pineGeo(), leafy = leafyGeo(), rockG = jitterVerts(new THREE.DodecahedronGeometry(1, 1), 0.35), bushG = jitterVerts(new THREE.IcosahedronGeometry(1, 1), 0.3);
@@ -628,7 +654,13 @@ export function buildWorld(scene, assets) {
     mp.setY(i, hgt - 30);
   }
   mg.computeVertexNormals();
-  addMesh(mg, new THREE.MeshStandardMaterial({ color: 0x4d5a52, roughness: 1, side: THREE.DoubleSide }), false, false);
+  { // atmospheric colouring: darker near the base and ridges, hazy blue overall
+    const cc = new Float32Array(mp.count * 3), base = new THREE.Color(0x5b6b74), top = new THREE.Color(0x8796a0), snow = new THREE.Color(0xc8d0d6);
+    for (let i = 0; i < mp.count; i++) { const y = mp.getY(i), t = Math.min(1, Math.max(0, y / 600)); const c = base.clone().lerp(top, t); if (y > 520) c.lerp(snow, Math.min(1, (y - 520) / 120)); cc[i * 3] = c.r; cc[i * 3 + 1] = c.g; cc[i * 3 + 2] = c.b; }
+    mg.setAttribute('color', new THREE.BufferAttribute(cc, 3));
+  }
+  const mtn = addMesh(mg, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, fog: false }), false, false);
+  mountainMats.push(mtn.material);
 
   return group;
 }
