@@ -165,7 +165,7 @@ const DAY_MINUTES = 14; // real minutes for a full 24h cycle
 const player = new Player();
 let bikeIdx = 3, bike = null, traffic, wildlife, mapInfo;
 const SPAWNS = {
-  Forest: [-475, 12, 0], City: [-100, -150, 0], Neighborhood: [450, -100, 0], Highway: [-600, 816.8, Math.PI / 2]
+  Forest: [-475, 12, 0], City: [-100, -150, 0], Neighborhood: [450, -102.5, Math.PI / 2], Highway: [-600, 816.8, Math.PI / 2]
 };
 let spawnName = 'City';
 let safeHistory = [], deadTimer = 0, crashCam = null;
@@ -404,7 +404,7 @@ const clock = new THREE.Clock();
 let frameAcc = 0, frames = 0, fpsShown = 0, qualityTimer = 0;
 function loop() {
   requestAnimationFrame(loop);
-  const dt = Math.min(clock.getDelta(), 0.05);
+  const rawDt = clock.getDelta(); const dt = Math.min(rawDt, 0.1);
   const inp = started ? readInput() : { throttle: 0, brake: 0, steer: 0 };
   if (started) {
     const steps = Math.ceil(dt / (1 / 120));
@@ -412,7 +412,7 @@ function loop() {
       const res = player.update(dt / steps, inp, traffic, wildlife);
       if (res) { onCrash(res); break; }
     }
-    if (!player.alive) { deadTimer -= dt; if (deadTimer <= 0 && deadTimer > -10) { deadTimer = -20; respawn(); } }
+    if (!player.alive) { deadTimer -= Math.min(rawDt, 0.25); if (deadTimer <= 0 && deadTimer > -10) { deadTimer = -20; respawn(); } }
     else if (!player.air && player.pitch < 0.1 && Math.abs(player.lean) < 0.3) {
       const now = performance.now() / 1000;
       if (!safeHistory.length || now - safeHistory[safeHistory.length - 1].t > 1) safeHistory.push({ t: now, x: player.pos.x, z: player.pos.z, yaw: player.yaw });
@@ -444,7 +444,7 @@ function loop() {
   }
   if (useBloom) composer.render(); else renderer.render(scene, camera);
   // adaptive quality
-  frameAcc += dt; frames++;
+  frameAcc += rawDt; frames++;
   if (frameAcc > 1) {
     fpsShown = Math.round(frames / frameAcc); $('fps').textContent = fpsShown + ' fps'; frames = 0; frameAcc = 0;
     qualityTimer++;

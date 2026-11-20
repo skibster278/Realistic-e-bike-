@@ -11,7 +11,7 @@ export function makeGroundData() {
     data[k] = THREE.DataUtils.toHalfFloat(terrainH(x, z));
     const s = surfaceAt(x, z);
     let dens = s === 'grass' ? 1 : 0;
-    if (dens && x > HOOD.x0 && x < HOOD.x1 && z > HOOD.z0 && z < HOOD.z1) dens = 0.55;
+    if (dens && x > HOOD.x0 && x < HOOD.x1 && z > HOOD.z0 && z < HOOD.z1) dens = 0.3;
     if (x > CITY.x0 - 8 && x < CITY.x1 + 8 && z > CITY.z0 - 8 && z < CITY.z1 + 8) dens = s === 'grass' ? 0.5 : 0;
     if (dens && x > FOREST.x0 && x < FOREST.x1 && z > FOREST.z0 && z < FOREST.z1) dens = 0.85;
     data[k + 1] = THREE.DataUtils.toHalfFloat(dens);
