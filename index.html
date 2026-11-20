@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Volt Ride</title>
+<link rel="stylesheet" href="style.css">
+<script type="importmap">{"imports":{"three":"./lib/three.module.js","three/addons/":"./lib/jsm/"}}</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud" class="hide">
+  <div id="topleft">
+    <canvas id="minimap" width="170" height="170"></canvas>
+    <div class="pill"><span id="clock">--:--</span> · <span id="biome">-</span></div>
+  </div>
+  <div id="topright"><span id="fps"></span><button id="menubtn" onclick="document.dispatchEvent(new KeyboardEvent('keydown',{code:'Escape'}));window.dispatchEvent(new KeyboardEvent('keydown',{code:'Escape'}))">☰</button></div>
+  <div id="trick"></div>
+  <div id="toast"></div>
+  <div id="crash"></div>
+  <div id="gauge">
+    <div id="bikename"></div>
+    <div><span id="speed">0</span><small>KM/H</small></div>
+    <div class="battbar"><div id="batt"></div></div>
+    <div id="best"></div>
+  </div>
+  <div id="help" class="hide">
+    <b>W/S</b> throttle / brake · <b>A/D</b> steer · <b>Shift</b> wheelie (lean back) · <b>Ctrl/Q</b> lean forward · <b>Space</b> rear brake<br>
+    <b>C</b> camera · <b>E</b> look back · <b>1-8</b> switch bike · <b>N</b> day/night · hold <b>T</b> fast time · <b>M</b> map · <b>R</b> respawn · <b>B</b> bloom · <b>Esc</b> menu
+  </div>
+</div>
+
+<div id="touch" class="hide">
+  <div class="tl"><div data-t="l" class="tb">◀</div><div data-t="r" class="tb">▶</div></div>
+  <div class="tr"><div data-t="lift" class="tb sm">WHEELIE</div><div data-t="brake" class="tb">BRAKE</div><div data-t="gas" class="tb tall">GAS</div></div>
+</div>
+
+<div id="fade"></div>
+
+<div id="menu">
+  <div id="loading"><h1>VOLT<span>RIDE</span></h1><p id="loadmsg">Loading…</p></div>
+  <div id="menuinner" class="hide">
+    <h1>VOLT<span>RIDE</span></h1>
+    <p class="sub">Electric dirt &amp; street riding · Forest trails · Neighborhood · City · Highway</p>
+    <h3>Choose your bike</h3>
+    <div id="bikes"></div>
+    <h3>Spawn</h3>
+    <div class="spawns">
+      <button data-spawn="Forest">🌲 Forest trails</button>
+      <button data-spawn="Neighborhood">🏡 Neighborhood</button>
+      <button data-spawn="City" class="sel">🏙️ City</button>
+      <button data-spawn="Highway">🛣️ Highway</button>
+    </div>
+    <button id="go">RIDE</button>
+    <p class="keys"><b>WASD</b> ride · <b>Shift</b> wheelie · <b>Ctrl</b> lean fwd · <b>Space</b> brake · <b>C</b> camera · <b>N</b> day/night · <b>H</b> help</p>
+  </div>
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
