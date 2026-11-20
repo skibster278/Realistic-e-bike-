@@ -51,24 +51,46 @@ function typeGeo(t) {
   return (geoCache[t] = { body, cab, wh, hl, tl, trim, T });
 }
 
-let gltfCar = null; // loaded real model (optional)
-export function setGltfCar(obj) { gltfCar = obj; }
+const realCars = []; // { proto, L, W }
+const glassReal = new THREE.MeshPhysicalMaterial({ color: 0x10161c, roughness: 0.04, metalness: 0.6, transparent: true, opacity: 0.82 });
+// normalise a loaded car: length along +Z (front = +Z), wheels on y=0, centred, given length
+export function addRealCar(scene, length, isPaint) {
+  const wrap = new THREE.Group(); wrap.add(scene);
+  let box = new THREE.Box3().setFromObject(wrap), size = box.getSize(new THREE.Vector3());
+  if (size.x > size.z) scene.rotation.y = Math.PI / 2;
+  wrap.updateMatrixWorld(true);
+  // find the front using headlight meshes
+  let hl = null; scene.traverse((o) => { if (o.isMesh && /head/i.test(o.material.name || '')) hl = o; });
+  box = new THREE.Box3().setFromObject(wrap); const c = box.getCenter(new THREE.Vector3());
+  if (hl) { const hc = new THREE.Box3().setFromObject(hl).getCenter(new THREE.Vector3()); if (hc.z < c.z) scene.rotation.y += Math.PI; }
+  wrap.updateMatrixWorld(true);
+  box = new THREE.Box3().setFromObject(wrap); size = box.getSize(new THREE.Vector3());
+  const k = length / size.z; scene.scale.multiplyScalar(k);
+  wrap.updateMatrixWorld(true); box = new THREE.Box3().setFromObject(wrap); const c2 = box.getCenter(new THREE.Vector3());
+  scene.position.x -= c2.x; scene.position.z -= c2.z; scene.position.y -= box.min.y;
+  scene.traverse((o) => {
+    if (!o.isMesh) return;
+    o.castShadow = true;
+    const mm = o.material;
+    if (mm.transmission > 0 || /glass|window/i.test(mm.name || '')) o.material = glassReal;
+    if (isPaint(o, mm)) o.userData.paint = true;
+    if (/head/i.test(mm.name || '')) o.userData.head = true;
+    if (/brake|tail/i.test(mm.name || '')) o.userData.tail = true;
+  });
+  wrap.updateMatrixWorld(true); box = new THREE.Box3().setFromObject(wrap); size = box.getSize(new THREE.Vector3());
+  realCars.push({ proto: wrap, L: size.z, W: size.x });
+}
+export function hasRealCars() { return realCars.length > 0; }
 
 export function makeCar(type, paint) {
   const g = new THREE.Group();
-  if (type === 'real' && gltfCar) {
-    const c = gltfCar.clone(true);
-    c.traverse((o) => {
-      if (o.isMesh) {
-        o.castShadow = true;
-        if (o.name === 'body' || /body/i.test(o.material?.name || '')) o.material = paint;
-      }
-    });
+  if (type === 'real' && realCars.length) {
+    const rc = pick(realCars);
+    const c = rc.proto.clone(true);
+    c.traverse((o) => { if (o.isMesh) { if (o.userData.paint) o.material = paint; else if (o.userData.head) o.material = headMat; else if (o.userData.tail) o.material = tailMat; } });
     g.add(c);
-    const lights = merge([boxGeo(1.4, 0.06, 0.05, 0, 0.62, 2.28)]);
-    const hm = new THREE.Mesh(lights, headMat); g.add(hm);
-    g.add(new THREE.Mesh(boxGeo(1.4, 0.06, 0.05, 0, 0.75, -2.25), tailMat));
-    g.userData = { L: 4.6, W: 1.95 };
+    const proxy = makeCar(rc.L > 4.65 ? 'sedan' : 'sport', paint); proxy.visible = false; g.add(proxy);
+    g.userData = { L: rc.L, W: rc.W, real: c, proxy };
     return g;
   }
   const G = typeGeo(type);
@@ -106,7 +128,8 @@ export class Traffic {
     if (kind === 'hwy') type = pick(['sedan', 'suv', 'sport', 'truck', 'sedan', 'pickup', 'van', 'real', 'truck']);
     else if (kind === 'city') type = pick(['sedan', 'suv', 'hatch', 'van', 'bus', 'sedan', 'real', 'pickup']);
     else type = pick(['sedan', 'suv', 'hatch', 'pickup', 'real']);
-    if (type === 'real' && !gltfCar) type = 'sport';
+    if (type === 'real' && !realCars.length) type = 'sport';
+    if (realCars.length && type !== 'bus' && type !== 'truck' && rand() < 0.45) type = 'real';
     const mesh = makeCar(type, pick(paintMats));
     this.scene.add(mesh);
     const dir = rand() < 0.5 ? 1 : -1;
@@ -140,6 +163,11 @@ export class Traffic {
   }
   update(dt, player) {
     const all = this.cars;
+    this.lodT = (this.lodT || 0) - dt;
+    if (this.lodT <= 0 && player) {
+      this.lodT = 0.4;
+      for (const c of all) { const u = c.mesh.userData; if (!u.real) continue; const near = (c.pos.x - player.pos.x) ** 2 + (c.pos.z - player.pos.z) ** 2 < 110 * 110; u.real.visible = near; u.proxy.visible = !near; }
+    }
     for (const c of all) {
       // target speed
       let target = c.vmax;

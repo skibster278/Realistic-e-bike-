@@ -180,7 +180,11 @@ export function queryCols(x, z) {
 // ---------------------------------------------------------------- build
 export const lamps = []; // {x,y,z}
 export const nightMats = []; // {mat, max}
-export const parkedSpots = []; // {x,z,yaw}
+export const parkedSpots = [];
+export const propChunks = [];
+export function updateChunks(px, pz) {
+  for (const c of propChunks) { const v = (c.x - px) ** 2 + (c.z - pz) ** 2 < c.maxD * c.maxD; for (const m of c.meshes) m.visible = v; }
+} // {x,z,yaw}
 
 export function buildWorld(scene, assets) {
   const cityRoofs = [];
@@ -258,7 +262,7 @@ export function buildWorld(scene, assets) {
   }
   const poleMat = new THREE.MeshStandardMaterial({ color: 0x4a4d50, roughness: 0.5, metalness: 0.7 });
   const headMat = new THREE.MeshStandardMaterial({ color: 0x222222, emissive: 0xffd9a0, emissiveIntensity: 0 });
-  nightMats.push({ mat: headMat, max: 6 });
+  nightMats.push({ mat: headMat, max: 4 });
   const poles = new THREE.InstancedMesh(poleG, poleMat, lampSpots.length);
   const heads = new THREE.InstancedMesh(headG, headMat, lampSpots.length);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(1, 1, 1), up = V(0, 1, 0);
@@ -275,12 +279,12 @@ export function buildWorld(scene, assets) {
   for (let i = 0; i < TX.FACADE_COUNT; i++) {
     const f = TX.facadeTex(i);
     const mat = new THREE.MeshStandardMaterial({ map: f.map, emissiveMap: f.emissive, emissive: 0xffffff, emissiveIntensity: 0, roughnessMap: f.mr, metalnessMap: f.mr, roughness: 1, metalness: i === 2 ? 1 : 0.85, bumpMap: f.bump, bumpScale: 3, envMapIntensity: 1.4 });
-    nightMats.push({ mat, max: 1.6 });
+    nightMats.push({ mat, max: 0.75 });
     facades.push({ mat, geos: [] });
   }
   const shop = TX.shopTex();
   const shopMat = new THREE.MeshStandardMaterial({ map: shop.map, emissiveMap: shop.emissive, emissive: 0xffffff, emissiveIntensity: 0.15, roughnessMap: shop.mr, metalnessMap: shop.mr, roughness: 1, metalness: 0.9, bumpMap: shop.bump, bumpScale: 2 });
-  nightMats.push({ mat: shopMat, max: 2.2, min: 0.04 });
+  nightMats.push({ mat: shopMat, max: 0.7, min: 0.03 });
   const shopGeos = [], trimGeos = [];
   // box with facade UVs: u in metres/uRep, v from v0
   const fbox = (w, h, d, cx, y0, cz, uRep, vRep, v0 = 0) => {
@@ -354,7 +358,7 @@ export function buildWorld(scene, assets) {
   // --- neighborhood houses
   const ht = TX.houseTex();
   const houseMat = new THREE.MeshStandardMaterial({ map: ht.map, emissiveMap: ht.emissive, emissive: 0xffffff, emissiveIntensity: 0, vertexColors: true, roughness: 0.85 });
-  nightMats.push({ mat: houseMat, max: 1.4 });
+  nightMats.push({ mat: houseMat, max: 0.9 });
   const roofMat = new THREE.MeshStandardMaterial({ map: TX.roofTex(), vertexColors: true, roughness: 0.9 });
   const walls = [], roofs = [], drives = [], leafyHood = [];
   const HC = [0xf2efe6, 0xd9cdb4, 0xa9b8c4, 0xc7d1b5, 0xe8d8c0, 0x9aa5ad, 0xd6b9a0, 0xffffff, 0x8c9c8a];
@@ -528,7 +532,7 @@ export function buildWorld(scene, assets) {
     im.castShadow = cast; im.receiveShadow = true; group.add(im); return im;
   };
   const A = assets || {};
-  const glbInst = (gltf, list, { cast = true, yScaleJitter = 0.15, pick = null, norm = false } = {}) => {
+  const glbInst = (gltf, list, { cast = true, yScaleJitter = 0.15, pick = null, norm = false, maxDist = 160 } = {}) => {
     const out = [], geos = [];
     gltf.scene.updateMatrixWorld(true);
     for (const top of gltf.scene.children) {
@@ -538,13 +542,23 @@ export function buildWorld(scene, assets) {
     const bb = new THREE.Box3(); for (const [g] of geos) { g.computeBoundingBox(); bb.union(g.boundingBox); }
     const cx = (bb.min.x + bb.max.x) / 2, cz = (bb.min.z + bb.max.z) / 2;
     const sz = bb.getSize(V(0, 0, 0)), nk = norm ? 1 / Math.max(sz.x, sz.z) : 1;
-    for (const [g, m] of geos) { g.translate(-cx, -bb.min.y, -cz); if (norm) g.scale(nk, nk, nk); out.push(new THREE.InstancedMesh(g, m, list.length)); }
-    list.forEach((t, i) => {
-      q.setFromAxisAngle(up, t[4] ?? rand() * 6.28);
-      m4.compose(V(t[0], t[1], t[2]), q, V(t[3], t[3] * rr(1 - yScaleJitter, 1 + yScaleJitter), t[3]));
-      for (const im of out) im.setMatrixAt(i, m4);
-    });
-    for (const im of out) { im.castShadow = cast; im.receiveShadow = true; group.add(im); }
+    for (const [g, m] of geos) { g.translate(-cx, -bb.min.y, -cz); if (norm) g.scale(nk, nk, nk); }
+    // spatial chunks so frustum + distance culling work (an InstancedMesh is culled as one unit)
+    const CH = 90, cells = new Map();
+    for (const t of list) { const k = Math.floor(t[0] / CH) + ',' + Math.floor(t[2] / CH); let c = cells.get(k); if (!c) cells.set(k, (c = [])); c.push(t); }
+    for (const items of cells.values()) {
+      const ims = geos.map(([g, m]) => new THREE.InstancedMesh(g, m, items.length));
+      let sx = 0, sz2 = 0;
+      items.forEach((t, i) => {
+        q.setFromAxisAngle(up, t[4] ?? rand() * 6.28);
+        m4.compose(V(t[0], t[1], t[2]), q, V(t[3], t[3] * rr(1 - yScaleJitter, 1 + yScaleJitter), t[3]));
+        for (const im of ims) im.setMatrixAt(i, m4);
+        sx += t[0]; sz2 += t[2];
+      });
+      const chunk = { x: sx / items.length, z: sz2 / items.length, maxD: maxDist, meshes: ims };
+      for (const im of ims) { im.castShadow = cast; im.receiveShadow = true; im.computeBoundingSphere(); group.add(im); out.push(im); }
+      propChunks.push(chunk);
+    }
     return out;
   };
   const split = (list, n) => { const o = Array.from({ length: n }, () => []); list.forEach((t) => o[(rand() * n) | 0].push(t)); return o; };
@@ -561,16 +575,16 @@ export function buildWorld(scene, assets) {
   }
   if (A.props && A.props.rock_07) {
     const rv = split(rocks, 3);
-    glbInst(A.props.rock_07, rv[0].map((t) => [t[0], t[1] - 0.15 * t[3], t[2], t[3] * 1.6]), { norm: true });
-    glbInst(A.props.rock_09, rv[1].map((t) => [t[0], t[1] - 0.15 * t[3], t[2], t[3] * 1.6]), { norm: true });
+    glbInst(A.props.rock_07, rv[0].map((t) => [t[0], t[1] - 0.15 * t[3], t[2], t[3] * 1.6]), { norm: true, maxDist: 140 });
+    glbInst(A.props.rock_09, rv[1].map((t) => [t[0], t[1] - 0.15 * t[3], t[2], t[3] * 1.6]), { norm: true, maxDist: 140 });
     glbInst(A.props.boulder_01, rv[2].filter((t, i) => i % 2 === 0).map((t) => [t[0], t[1] - 0.3 * t[3], t[2], t[3] * 3]), { norm: true });
   } else inst(rockG, new THREE.MeshStandardMaterial({ color: 0x8a867c, roughness: 0.95, flatShading: true }), rocks);
-  if (A.props && A.props.fern_02) split(bushes, 4).forEach((l, i) => glbInst(A.props.fern_02, l.map((t) => [t[0], t[1] - 0.05, t[2], t[3] * 1.6]), { cast: false, pick: [['fern_02_a', 'fern_02_b', 'fern_02_c', 'fern_02_d'][i]] }));
+  if (A.props && A.props.fern_02) split(bushes, 4).forEach((l, i) => glbInst(A.props.fern_02, l.map((t) => [t[0], t[1] - 0.05, t[2], t[3] * 1.6]), { cast: false, maxDist: 90, pick: [['fern_02_a', 'fern_02_b', 'fern_02_c', 'fern_02_d'][i]] }));
   else inst(bushG, new THREE.MeshStandardMaterial({ color: 0x3f5a24, roughness: 1, flatShading: true }), bushes, true, false);
   if (A.props && A.props.dead_tree_trunk) {
     const logs = [];
     for (let i = 0; i < 160; i++) { const x = rr(FOREST.x0, FOREST.x1), z = rr(FOREST.z0, FOREST.z1); if (!clearOf(x, z, 3)) continue; logs.push([x, terrainH(x, z) - 0.1, z, rr(0.8, 1.3)]); addCircle(x, z, 1.0, 1.2); }
-    glbInst(A.props.dead_tree_trunk, logs);
+    glbInst(A.props.dead_tree_trunk, logs, { maxDist: 150 });
   }
   if (!A.grass) {
     const tuftG = merge([0, 1, 2].map((k) => new THREE.PlaneGeometry(0.5, 0.45).translate(0, 0.22, 0).rotateY(k * Math.PI / 3)));
@@ -597,11 +611,11 @@ export function buildWorld(scene, assets) {
         else if (r < 0.5 && s2.kind === 'city') { benches.push([x + rx * 0.8, 0.02, z + rz * 0.8, 1, Math.atan2(rx, rz)]); }
       }
     }
-    glbInst(A.props.fire_hydrant, hyd, { yScaleJitter: 0, pick: ['fire_hydrant', 'fire_hydrant_cap_01'] });
-    glbInst(A.props.metal_trash_can, cans, { yScaleJitter: 0, pick: ['metal_trash_can', 'metal_trash_can_handle_left', 'metal_trash_can_handle_right'] });
-    glbInst(A.props.modular_street_seating, benches, { yScaleJitter: 0, pick: ['crossbar', 'legs_double', 'legs_single', 'back_support_r', 'back_support_l', 'arm_rest_01', 'arm_rest_02', 'seat', 'seat_back'] });
+    glbInst(A.props.fire_hydrant, hyd, { yScaleJitter: 0, maxDist: 110, cast: false, pick: ['fire_hydrant', 'fire_hydrant_cap_01'] });
+    glbInst(A.props.metal_trash_can, cans, { yScaleJitter: 0, maxDist: 110, cast: false, pick: ['metal_trash_can', 'metal_trash_can_handle_left', 'metal_trash_can_handle_right'] });
+    glbInst(A.props.modular_street_seating, benches, { yScaleJitter: 0, maxDist: 110, cast: false, pick: ['crossbar', 'legs_double', 'legs_single', 'back_support_r', 'back_support_l', 'arm_rest_01', 'arm_rest_02', 'seat', 'seat_back'] });
     for (const b of cityRoofs) for (let k = 0; k < 2; k++) ac.push([b[0] + rr(-b[3] / 3, b[3] / 3), b[1], b[2] + rr(-b[4] / 3, b[4] / 3), 1.5]);
-    glbInst(A.props.exterior_aircon_unit, ac, { yScaleJitter: 0, pick: ['exterior_aircon_unit'] });
+    glbInst(A.props.exterior_aircon_unit, ac, { yScaleJitter: 0, maxDist: 220, cast: false, pick: ['exterior_aircon_unit'] });
   }
 
   // --- distant mountains

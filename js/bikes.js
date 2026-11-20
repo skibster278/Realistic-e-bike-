@@ -315,8 +315,22 @@ export function buildBike(spec) {
   const gR = new THREE.Object3D(); gR.position.copy(gripR); steer.add(gR);
   out.gripObjs = [gL, gR];
   root.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  mergeByMaterial(body); mergeByMaterial(steer, [dash]);
   out.rider = buildRider(out, spec, pegL, pegR, seat);
   return out;
+}
+
+// merge the static mesh children of a group by material (cuts draw calls ~10x)
+function mergeByMaterial(group, keep = []) {
+  const byMat = new Map();
+  for (const o of [...group.children]) {
+    if (!o.isMesh || keep.includes(o)) continue;
+    o.updateMatrix();
+    const g = o.geometry.clone().applyMatrix4(o.matrix);
+    if (!byMat.has(o.material)) byMat.set(o.material, []);
+    byMat.get(o.material).push(g); group.remove(o);
+  }
+  for (const [m, geos] of byMat) { const me = new THREE.Mesh(merge(geos), m); me.castShadow = true; me.receiveShadow = true; group.add(me); }
 }
 
 // ---------------------------------------------------------------- rider (rigged human, posed with IK)

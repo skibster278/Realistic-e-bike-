@@ -12,9 +12,9 @@ import { loadImpostor, IMP_UNIFORMS } from './impostor.js';
 import { makeGrass, makeGroundData } from './grass.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
-import { buildWorld, lamps, nightMats, biomeAt, makeMapCanvas, groundH, FOREST } from './world.js';
+import { buildWorld, lamps, nightMats, biomeAt, makeMapCanvas, groundH, FOREST, updateChunks } from './world.js';
 import { BIKES, buildBike, setRiderAsset } from './bikes.js';
-import { Traffic, headMat, tailMat, setGltfCar, makeCar } from './traffic.js';
+import { Traffic, headMat, tailMat, addRealCar } from './traffic.js';
 import { Wildlife } from './animals.js';
 import { Player } from './player.js';
 import { clamp, smoothstep, lerp } from './util.js';
@@ -59,7 +59,7 @@ sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04;
 scene.add(sun, sun.target);
 const hemi = new THREE.HemisphereLight(0xbcd6ff, 0x4a4030, 1.0); scene.add(hemi);
 const lampLights = [];
-for (let i = 0; i < 10; i++) { const l = new THREE.PointLight(0xffc98a, 0, 38, 1.4); scene.add(l); lampLights.push(l); }
+for (let i = 0; i < 10; i++) { const l = new THREE.PointLight(0xffc98a, 0, 48, 1.3); scene.add(l); lampLights.push(l); }
 const pmrem = new THREE.PMREMGenerator(renderer);
 const envScene = new THREE.Scene(); const envSky = new Sky(); envSky.scale.setScalar(1000); envScene.add(envSky);
 let envRT = null, hdrTex = null, hdrEnv = null;
@@ -286,7 +286,7 @@ function updateSky(dt) {
   const fogDay = new THREE.Color(hdrTex ? 0xc4d2e0 : 0xb9cde0).lerp(new THREE.Color(0xe0b89a), golden * 0.7);
   scene.fog.color.copy(fogDay).lerp(new THREE.Color(0x0a0f1a), night);
   scene.fog.near = lerp(60, 250, day); scene.fog.far = lerp(1100, 3300, day);
-  renderer.toneMappingExposure = lerp(1.3, 0.72, day);
+  renderer.toneMappingExposure = lerp(0.95, 0.72, day);
   starM.opacity = smoothstep(0.0, -0.2, elev);
   moon.position.copy(camera.position).addScaledVector(moonDir, 4500); moon.material.opacity = smoothstep(-0.05, 0.1, moonDir.y);
   stars.position.copy(camera.position);
@@ -294,7 +294,7 @@ function updateSky(dt) {
   const nightAmt = smoothstep(0.12, -0.08, elev);
   for (const nm of nightMats) nm.mat.emissiveIntensity = Math.max(nm.min || 0, nm.max * nightAmt);
   headMat.emissiveIntensity = 0.4 + 3.5 * nightAmt; tailMat.emissiveIntensity = 0.6 + 2.5 * nightAmt;
-  bloom.strength = 0.25 + nightAmt * 0.55;
+  bloom.strength = 0.18 + nightAmt * 0.3;
   if (bike) bike.headlight.intensity = 5 + nightAmt * 55;
   lampTimer -= dt;
   if (lampTimer <= 0) {
@@ -303,7 +303,7 @@ function updateSky(dt) {
     const near = lamps.map((l) => [((l.x - px) ** 2 + (l.z - pz) ** 2), l]).sort((a, b) => a[0] - b[0]).slice(0, lampLights.length);
     near.forEach(([, l], i) => lampLights[i].position.set(l.x, l.y, l.z));
   }
-  for (const l of lampLights) l.intensity = 40 * nightAmt;
+  for (const l of lampLights) l.intensity = 75 * nightAmt;
   // impostor lighting (matches three's physically based lambert: /PI)
   IMP_UNIFORMS.sunDir.value.copy(lightDir);
   IMP_UNIFORMS.sunCol.value.copy(sun.color).multiplyScalar(sun.intensity / Math.PI);
@@ -350,7 +350,7 @@ function updateCamera(dt, inp) {
   if (window.__game && window.__game.freeCam) {
     bike.rider.setFP(false);
     camera.position.set(...window.__game.freeCamPos); camera.rotation.set(0, 0, 0);
-    camera.lookAt(player.pos.x, player.pos.y + 0.7, player.pos.z); camera.fov = 45; camera.updateProjectionMatrix();
+    const la = window.__game.lookAt; if (la) camera.lookAt(...la); else camera.lookAt(player.pos.x, player.pos.y + 0.7, player.pos.z); camera.fov = 45; camera.updateProjectionMatrix();
     return;
   }
   if (camMode === 0) {
@@ -422,6 +422,7 @@ function loop() {
   traffic.update(dt, player);
   wildlife.update(dt, player);
   if (grass) grass.update(player.pos.x, player.pos.z);
+  updateChunks(player.pos.x, player.pos.z);
   syncBike(dt);
   updateCamera(dt, inp);
   updateSky(dt);
@@ -489,21 +490,6 @@ function loadRealModels() {
     const u = urls.shift(); if (!u) return;
     loader.load(u, ok, undefined, () => tryLoad(urls, ok));
   };
-  tryLoad(['assets/models/ferrari.glb', 'https://threejs.org/examples/models/gltf/ferrari.glb', 'https://raw.githubusercontent.com/mrdoob/three.js/r160/examples/models/gltf/ferrari.glb'], (g) => {
-    const car = g.scene;
-    const box = new THREE.Box3().setFromObject(car), size = box.getSize(new THREE.Vector3());
-    const s = 4.5 / Math.max(size.x, size.z); car.scale.setScalar(s);
-    if (size.x > size.z) car.rotation.y = Math.PI / 2;
-    setGltfCar(car);
-    // swap a handful of procedural sports cars for the real model
-    let n = 0;
-    for (const c of traffic.cars) if (c.type === 'sport' && n++ < 12) {
-      const pos = c.mesh.position.clone(); scene.remove(c.mesh);
-      const paint = c.mesh.children[0].material;
-      const nm = makeCar('real', paint); nm.position.copy(pos); nm.rotation.y = c.yaw; scene.add(nm); c.mesh = nm; c.pos = nm.position;
-    }
-    toast('Loaded real car models');
-  });
   tryLoad(['assets/models/fox.glb', 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Fox/glTF-Binary/Fox.glb', 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/Fox/glTF-Binary/Fox.glb'], (g) => {
     const box = new THREE.Box3().setFromObject(g.scene), size = box.getSize(new THREE.Vector3());
     const s = 1.0 / Math.max(size.x, size.z);
@@ -534,6 +520,15 @@ function loadRealModels() {
   status('Generating world…'); await tick();
   buildWorld(scene, assets);
   if (grassTex) { grass = makeGrass(grassTex, makeGroundData(), ...(matchMedia('(pointer: coarse)').matches ? [9000, 32] : [14000, 38])); scene.add(grass); }
+  status('Loading cars…');
+  {
+    const draco = new DRACOLoader(); draco.setDecoderPath('./lib/jsm/libs/draco/gltf/');
+    const cl = new GLTFLoader(); cl.setDRACOLoader(draco); cl.setMeshoptDecoder(MeshoptDecoder);
+    await Promise.all([
+      cl.loadAsync('assets/models/ferrari.glb').then((g) => addRealCar(g.scene, 4.6, (o) => o.name === 'body')).catch((e) => console.warn('car', e)),
+      cl.loadAsync('assets/models/car_concept.glb').then((g) => addRealCar(g.scene, 4.7, (o, m) => /paint/i.test(m.name || ''))).catch((e) => console.warn('car', e))
+    ]);
+  }
   status('Spawning traffic…'); await tick();
   traffic = new Traffic(scene);
   status('Releasing wildlife…'); await tick();
@@ -549,4 +544,4 @@ function loadRealModels() {
   loadRealModels();
   loop();
 })();
-window.__game = { player, scene, camera, get traffic() { return traffic; }, setTime: (t) => (timeOfDay = t), keys };
+window.__game = { player, scene, camera, renderer, get traffic() { return traffic; }, setTime: (t) => (timeOfDay = t), keys };
