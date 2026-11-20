@@ -191,12 +191,12 @@ export function buildWorld(scene, assets) {
   // --- base ground
   const grassMap = TX.grassTex(); grassMap.repeat.set(1500, 1500);
   const grassNor = TX.imgTex('leafy_grass_nor', 1500, 1500, false);
-  const ground = addMesh(new THREE.PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: grassMap, normalMap: grassNor, roughness: 1, color: 0xc8c8b0 }), false, true);
+  const ground = addMesh(new THREE.PlaneGeometry(6000, 6000, 150, 150).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: grassMap, normalMap: grassNor, roughness: 1, color: 0xc8c8b0 }), false, true);
   ground.position.y = -0.12;
 
   // --- city concrete pad
   const sw = TX.sidewalkTex(); sw.repeat.set(320, 320);
-  const pad = addMesh(new THREE.PlaneGeometry(640, 640).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: sw, normalMap: TX.imgTex('concrete_pavers_nor', 160, 160, false), roughness: 0.95 }), false, true);
+  const pad = addMesh(new THREE.PlaneGeometry(640, 640, 32, 32).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: sw, normalMap: TX.imgTex('concrete_pavers_nor', 160, 160, false), roughness: 0.95 }), false, true);
   pad.position.y = 0.02;
 
   // --- roads
@@ -208,7 +208,7 @@ export function buildWorld(scene, assets) {
   }
   const byKind = {};
   for (const s of roads) {
-    const g = new THREE.PlaneGeometry(s.w, s.len).rotateX(-Math.PI / 2);
+    const g = new THREE.PlaneGeometry(s.w, s.len, 1, Math.ceil(s.len / 25)).rotateX(-Math.PI / 2);
     const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setY(i, uv.getY(i) * s.len / 12);
     g.rotateY(Math.atan2(s.dx, s.dz));
     g.translate((s.ax + s.bx) / 2, 0.06, (s.az + s.bz) / 2);

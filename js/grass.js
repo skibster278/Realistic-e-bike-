@@ -51,7 +51,7 @@ export function makeGrass(cardTex, groundTex, count = 8000, R = 42) {
         vec4 gd = texture2D(ground, (wp - g0) / gSize);
         float d = length(wp - center) / R;
         float s = (0.55 + aOff.z * 0.7) * smoothstep(1.0, 0.75, d);
-        s *= smoothstep(aOff.w - 0.08, aOff.w + 0.08, gd.g);
+        s *= smoothstep(aOff.w - 0.08, aOff.w + 0.08, gd.g) * step(0.25, gd.g);
         float rot = aOff.z * 6.283;
         vec3 p = position; p.xz = mat2(cos(rot), -sin(rot), sin(rot), cos(rot)) * p.xz;
         p *= vec3(1.35, 0.65, 1.35) * s;

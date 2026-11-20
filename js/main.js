@@ -13,7 +13,7 @@ import { makeGrass, makeGroundData } from './grass.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { buildWorld, lamps, nightMats, biomeAt, makeMapCanvas, groundH, FOREST } from './world.js';
-import { BIKES, buildBike } from './bikes.js';
+import { BIKES, buildBike, setRiderAsset } from './bikes.js';
 import { Traffic, headMat, tailMat, setGltfCar, makeCar } from './traffic.js';
 import { Wildlife } from './animals.js';
 import { Player } from './player.js';
@@ -65,18 +65,25 @@ const envScene = new THREE.Scene(); const envSky = new Sky(); envSky.scale.setSc
 let envRT = null, hdrTex = null, hdrEnv = null;
 
 // post
-const rt = new THREE.WebGLRenderTarget(innerWidth * pixelRatio, innerHeight * pixelRatio, { type: THREE.HalfFloatType, samples: 4 });
-const composer = new EffectComposer(renderer, rt);
-composer.setPixelRatio(pixelRatio); composer.setSize(innerWidth, innerHeight);
-composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.35, 0.5, 0.9);
-composer.addPass(bloom);
-composer.addPass(new OutputPass());
+let composer, bloom;
+function buildComposer() {
+  if (composer) { composer.renderTarget1.dispose(); composer.renderTarget2.dispose(); }
+  const w = Math.floor(innerWidth * pixelRatio), h = Math.floor(innerHeight * pixelRatio);
+  const rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, samples: 4 });
+  composer = new EffectComposer(renderer, rt);
+  composer.setPixelRatio(pixelRatio); composer.setSize(innerWidth, innerHeight);
+  composer.addPass(new RenderPass(scene, camera));
+  const prev = bloom ? bloom.strength : 0.35;
+  bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), prev, 0.5, 0.9);
+  composer.addPass(bloom);
+  composer.addPass(new OutputPass());
+}
+buildComposer();
 let useBloom = true;
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
+  renderer.setSize(innerWidth, innerHeight); buildComposer();
 });
 
 // ------------------------------------------------------------ input
@@ -227,11 +234,15 @@ function drawMinimap() {
 let dashT = 0;
 function drawDash() {
   const { canvas: c, tex } = bike.dash, x = c.getContext('2d');
-  x.fillStyle = '#05080a'; x.fillRect(0, 0, 128, 64);
-  x.fillStyle = '#7fe0ff'; x.font = 'bold 30px Arial'; x.textAlign = 'center';
-  x.fillText(Math.round(Math.abs(player.speed) * 3.6), 64, 34);
-  x.font = '10px Arial'; x.fillText('KM/H', 64, 46);
-  x.fillStyle = '#333'; x.fillRect(10, 52, 108, 6); x.fillStyle = player.battery > 25 ? '#4f4' : '#f44'; x.fillRect(10, 52, 108 * player.battery / 100, 6);
+  const g = x.createLinearGradient(0, 0, 0, 128); g.addColorStop(0, '#0b1420'); g.addColorStop(1, '#02050a');
+  x.fillStyle = g; x.fillRect(0, 0, 256, 128);
+  x.fillStyle = '#e8f6ff'; x.font = 'bold 64px Arial'; x.textAlign = 'center';
+  x.fillText(Math.round(Math.abs(player.speed) * 3.6), 128, 74);
+  x.fillStyle = '#7fc8ff'; x.font = 'bold 16px Arial'; x.fillText('KM/H', 128, 96);
+  x.textAlign = 'left'; x.fillStyle = '#9ab'; x.font = '14px Arial'; x.fillText(fmtTime(timeOfDay), 12, 22);
+  x.textAlign = 'right'; x.fillText(Math.round(player.battery) + '%', 244, 22);
+  x.fillStyle = '#223'; x.fillRect(14, 108, 228, 10); x.fillStyle = player.battery > 25 ? '#3f8' : '#f44'; x.fillRect(14, 108, 228 * player.battery / 100, 10);
+  const pw = Math.min(1, Math.max(0, player.accel / 8)); x.fillStyle = '#4af'; x.fillRect(14, 30, 6, 70 * pw);
   tex.needsUpdate = true;
 }
 function fmtTime(t) { const h = Math.floor(t), m = Math.floor((t - h) * 60); return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`; }
@@ -322,8 +333,14 @@ function updateCamera(dt, inp) {
   const root = bike.root;
   const v = Math.abs(player.speed);
   lookYaw += ((inp.lookBack ? Math.PI * 0.9 : 0) - lookYaw) * Math.min(1, dt * 8);
+  if (window.__game && window.__game.freeCam) {
+    bike.rider.setFP(false);
+    camera.position.set(...window.__game.freeCamPos); camera.rotation.set(0, 0, 0);
+    camera.lookAt(player.pos.x, player.pos.y + 0.7, player.pos.z); camera.fov = 45; camera.updateProjectionMatrix();
+    return;
+  }
   if (camMode === 0) {
-    bike.rider.body.visible = false;
+    bike.rider.setFP(true);
     headBob += dt * (2 + v * 0.4);
     const surfShake = player.surface === 'asphalt' ? 0.002 : player.surface === 'concrete' ? 0.004 : 0.012;
     shake = surfShake * Math.min(1, v / 10) + (player.landed || 0) * 0.08;
@@ -338,7 +355,7 @@ function updateCamera(dt, inp) {
     camera.rotation.z = -player.lean * 0.55;
     camera.fov = 82 + Math.min(10, v * 0.15); camera.updateProjectionMatrix();
   } else {
-    bike.rider.body.visible = true;
+    bike.rider.setFP(false);
     const fx = Math.sin(player.yaw + lookYaw), fz = Math.cos(player.yaw + lookYaw);
     const want = tmpV.set(player.pos.x - fx * 5.2, player.pos.y + 2.1, player.pos.z - fz * 5.2);
     const gh = groundH(want.x, want.z) + 0.6; if (want.y < gh) want.y = gh;
@@ -365,6 +382,7 @@ function syncBike(dt) {
   bike.rear.rotation.x = wheelRot; bike.front.rotation.x = wheelRot * (player.spec.rr / player.spec.rf);
   bike.steer.rotation.y = -player.steer * 0.45 * (1 - clamp(Math.abs(player.speed) / 14, 0, 0.85));
   if (bike.crank) { crankRot += player.speed * 0.9 * dt; bike.crank.rotation.x = crankRot; }
+  bike.rider.update();
 }
 
 // ------------------------------------------------------------ main loop
@@ -416,7 +434,7 @@ function loop() {
     fpsShown = Math.round(frames / frameAcc); $('fps').textContent = fpsShown + ' fps'; frames = 0; frameAcc = 0;
     qualityTimer++;
     if (qualityTimer > 3 && fpsShown < 32 && pixelRatio > 0.7) {
-      pixelRatio = Math.max(0.7, pixelRatio - 0.15); renderer.setPixelRatio(pixelRatio); composer.setPixelRatio(pixelRatio); composer.setSize(innerWidth, innerHeight); qualityTimer = 0;
+      pixelRatio = Math.max(0.7, pixelRatio - 0.15); renderer.setPixelRatio(pixelRatio); buildComposer(); qualityTimer = 0;
     }
   }
 }
@@ -498,6 +516,7 @@ function loadRealModels() {
   ]);
   const grassTex = await new THREE.TextureLoader().loadAsync('assets/impostors/grass_cards.webp').catch(() => null);
   if (grassTex) { grassTex.colorSpace = THREE.SRGBColorSpace; assets.grass = true; }
+  await gl.loadAsync('assets/models/rider.glb').then((g) => setRiderAsset(g)).catch((e) => console.warn('rider', e));
   status('Generating world…'); await tick();
   buildWorld(scene, assets);
   if (grassTex) { grass = makeGrass(grassTex, makeGroundData(), ...(matchMedia('(pointer: coarse)').matches ? [9000, 32] : [14000, 38])); scene.add(grass); }
