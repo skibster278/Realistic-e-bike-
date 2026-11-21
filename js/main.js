@@ -81,10 +81,7 @@ function flareTex(kind) {
 const flare = new Lensflare();
 const fT = [flareTex(0), flareTex(1), flareTex(2)];
 flare.addElement(new LensflareElement(fT[0], 260, 0, new THREE.Color(1, 0.95, 0.85)));
-flare.addElement(new LensflareElement(fT[1], 110, 0.35, new THREE.Color(0.9, 0.95, 1)));
-flare.addElement(new LensflareElement(fT[2], 70, 0.6));
-flare.addElement(new LensflareElement(fT[1], 140, 0.85, new THREE.Color(1, 0.85, 0.7)));
-flare.addElement(new LensflareElement(fT[2], 40, 1.0));
+flare.addElement(new LensflareElement(fT[2], 50, 0.55));
 const flareHolder = new THREE.Object3D(); flareHolder.add(flare); scene.add(flareHolder);
 
 // lights

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { IMP_UNIFORMS } from './impostor.js';
-import { terrainH, surfaceAt, FOREST, HOOD, CITY } from './world.js';
+import { terrainH, surfaceAt, nearestRoad, FOREST, HOOD, CITY } from './world.js';
 
 // World-space data texture: R = terrain height, G = grass density
 const X0 = -1260, Z0 = -960, W = 2520, D = 1920, RES = 4;
@@ -11,6 +11,10 @@ export function makeGroundData() {
     data[k] = THREE.DataUtils.toHalfFloat(terrainH(x, z));
     const s = surfaceAt(x, z);
     let dens = s === 'grass' ? 1 : 0;
+    // keep a clean shoulder: no grass within a few metres of any road edge (guard rails, kerbs, verges)
+    const nr = nearestRoad(x, z);
+    if (nr.d < nr.seg.w / 2 + (nr.seg.kind === 'hwy' ? 5 : 3.5)) dens = 0;
+    else if (nr.d < nr.seg.w / 2 + 8) dens *= 0.6;
     if (dens && x > HOOD.x0 && x < HOOD.x1 && z > HOOD.z0 && z < HOOD.z1) dens = 0.3;
     if (x > CITY.x0 - 8 && x < CITY.x1 + 8 && z > CITY.z0 - 8 && z < CITY.z1 + 8) dens = s === 'grass' ? 0.5 : 0;
     if (dens && x > FOREST.x0 && x < FOREST.x1 && z > FOREST.z0 && z < FOREST.z1) dens = 1;
@@ -136,11 +140,11 @@ export function makeBlades(groundTex, count = 10000, R = 30) {
     fragmentShader: /* glsl */`
       uniform vec3 sunDir, sunCol, ambCol, fogCol; varying float vH, vFog, vVar, vTop;
       void main(){
-        vec3 baseC = mix(vec3(0.02, 0.035, 0.01), vec3(0.035, 0.045, 0.015), vVar);
-        vec3 tipC = mix(vec3(0.075, 0.12, 0.03), vec3(0.17, 0.16, 0.06), vVar * vVar * vVar);
+        vec3 baseC = mix(vec3(0.045, 0.07, 0.02), vec3(0.06, 0.08, 0.025), vVar);
+        vec3 tipC = mix(vec3(0.16, 0.24, 0.06), vec3(0.3, 0.28, 0.1), vVar * vVar * vVar);
         vec3 alb = mix(baseC, tipC, smoothstep(0.0, 1.0, vH));
         float ao = 0.35 + 0.65 * smoothstep(0.0, 0.7, vH);
-        vec3 col = alb * ao * (ambCol * 1.9 + sunCol * (0.8 + 1.0 * vH) * max(sunDir.y, 0.05));
+        vec3 col = alb * ao * (ambCol * 2.4 + sunCol * (0.55 + 0.9 * vH) * (0.45 + 0.55 * max(sunDir.y, 0.0)));
         col = mix(col, fogCol, vFog);
         gl_FragColor = vec4(col, 1.0);
         #include <tonemapping_fragment>
