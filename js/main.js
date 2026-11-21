@@ -433,7 +433,7 @@ function updateCamera(dt, inp) {
     camera.position.x += (Math.random() - 0.5) * shake;
     camera.rotation.order = 'YXZ';
     camera.rotation.y = player.yaw + Math.PI + lookYaw;
-    camera.rotation.x = -(player.slope + player.pitch) * 0.95 - 0.32 + (Math.random() - 0.5) * shake * 0.5;
+    camera.rotation.x = (player.slope + player.pitch) * 0.9 - 0.32 + (Math.random() - 0.5) * shake * 0.5;
     camera.rotation.z = -player.lean * 0.55;
     camera.fov = 82 + Math.min(10, v * 0.15); camera.updateProjectionMatrix();
   } else {
@@ -626,4 +626,4 @@ function loadRealModels() {
   loadRealModels();
   loop();
 })();
-window.__game = { player, scene, camera, renderer, get traffic() { return traffic; }, setTime: (t) => (timeOfDay = t), keys };
+window.__game = { player, scene, camera, renderer, get traffic() { return traffic; }, get wildlife() { return wildlife; }, get bike() { return bike; }, setTime: (t) => (timeOfDay = t), setCam: (m) => (camMode = m), keys };
