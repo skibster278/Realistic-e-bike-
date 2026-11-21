@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { rand } from './util.js';
 
 export const IMG = {};
-const FILES = ['asphalt_pit_lane_diff', 'asphalt_pit_lane_nor', 'asphalt_pit_lane_rough', 'leafy_grass_diff', 'leafy_grass_nor', 'forest_ground_04_diff', 'forest_ground_04_nor', 'stony_dirt_path_diff', 'stony_dirt_path_nor', 'concrete_pavers_diff', 'concrete_pavers_nor', 'brick_wall_02_diff', 'concrete_wall_004_diff', 'white_plaster_02_diff', 'pine_bark_diff'];
+const FILES = ['asphalt_02_diff', 'asphalt_02_nor', 'asphalt_02_rough', 'leafy_grass_diff', 'leafy_grass_nor', 'forest_ground_04_diff', 'forest_ground_04_nor', 'stony_dirt_path_diff', 'stony_dirt_path_nor', 'concrete_pavers_diff', 'concrete_pavers_nor', 'brick_wall_02_diff', 'concrete_wall_004_diff', 'white_plaster_02_diff', 'pine_bark_diff'];
 export function preloadImages(onProgress) {
   let n = 0;
   return Promise.all(FILES.map((f) => new Promise((res) => {
@@ -70,15 +70,15 @@ export function roadTex(kind, w) {
   const W = 1024, H = 1024, c = C(W, H), x = c.getContext('2d');
   const ppm = W / w; // pixels per meter across
   x.fillStyle = kind === 'hwy' ? '#3b3c3f' : '#36373a'; x.fillRect(0, 0, W, H);
-  if (tileImg(x, 'asphalt_pit_lane_diff', W, H, Math.round(3.5 * ppm))) { x.fillStyle = 'rgba(30,30,34,0.18)'; x.fillRect(0, 0, W, H); }
+  if (tileImg(x, 'asphalt_02_diff', W, H, Math.round(3.5 * ppm))) { x.fillStyle = 'rgba(30,30,34,0.35)'; x.fillRect(0, 0, W, H); }
   blotches(x, W, H, 30, 'rgba(20,20,22,A)', 40, 160, 0.25);
   blotches(x, W, H, 12, 'rgba(90,90,92,A)', 40, 120, 0.1);
   // tyre tracks (darker strips)
   const lanes = kind === 'city' ? [-4.75, -1.8, 1.8, 4.75] : kind === 'hwy' ? [-7.2, -3.2, 3.2, 7.2] : [-2.6, 2.6];
   for (const l of lanes) for (const o of [-0.8, 0.8]) {
-    x.fillStyle = 'rgba(15,15,15,0.08)';
+    x.fillStyle = 'rgba(15,15,15,0.18)';
     x.fillRect(W / 2 + (l + o) * ppm - 0.35 * ppm, 0, 0.7 * ppm, H);
-    x.fillStyle = 'rgba(0,0,0,0.05)'; x.fillRect(W / 2 + (l + o) * ppm - 0.15 * ppm, 0, 0.3 * ppm, H);
+    x.fillStyle = 'rgba(0,0,0,0.12)'; x.fillRect(W / 2 + (l + o) * ppm - 0.15 * ppm, 0, 0.3 * ppm, H);
   }
   const line = (m, wm, col, dash) => {
     x.fillStyle = col; const px = W / 2 + m * ppm - (wm * ppm) / 2;
@@ -104,15 +104,20 @@ export function roadTex(kind, w) {
     line(-0.12, 0.1, YE); line(0.12, 0.1, YE);
   }
   speckle(x, W, H, 9000, ['rgba(40,40,40,1)'], 1, 3, 0.35);
+  // cracks
+  x.strokeStyle = 'rgba(15,15,15,0.5)'; x.lineWidth = 1;
+  for (let i = 0; i < 6; i++) {
+    let px = rand() * W, py = rand() * H; x.beginPath(); x.moveTo(px, py);
+    for (let k = 0; k < 8; k++) { px += (rand() - 0.5) * 20; py += rand() * 14; x.lineTo(px, py); }
+    x.stroke();
+  }
   return tex(c);
 }
-// unmarked asphalt for intersections: same photo, tile size and darkening as roadTex. One repeat = 14 m.
 export function plainAsphalt() {
-  const S = 1024, c = C(S, S), x = c.getContext('2d');
-  x.fillStyle = '#36373a'; x.fillRect(0, 0, S, S);
-  if (tileImg(x, 'asphalt_pit_lane_diff', S, S, S / 4)) { x.fillStyle = 'rgba(30,30,34,0.18)'; x.fillRect(0, 0, S, S); }
-  blotches(x, S, S, 18, 'rgba(20,20,22,A)', 40, 160, 0.22);
-  blotches(x, S, S, 8, 'rgba(90,90,92,A)', 40, 120, 0.08);
+  const c = C(256, 256), x = c.getContext('2d');
+  x.fillStyle = '#37383b'; x.fillRect(0, 0, 256, 256);
+  blotches(x, 256, 256, 20, 'rgba(20,20,22,A)', 10, 40, 0.35);
+  speckle(x, 256, 256, 5000, ['#2a2a2c', '#4a4a4d', '#5a5a5c'], 1, 2.5, 0.8);
   return tex(c);
 }
 export function grassTex() {

@@ -231,7 +231,7 @@ export function buildWorld(scene, assets) {
   const bump = TX.asphaltBump();
   const roadMats = {};
   for (const k of Object.keys(WID)) {
-    const nor = TX.imgTex('asphalt_pit_lane_nor', WID[k] / 3.5, 12 / 3.5, false), rough = TX.imgTex('asphalt_pit_lane_rough', WID[k] / 3.5, 12 / 3.5, false);
+    const nor = TX.imgTex('asphalt_02_nor', WID[k] / 3.5, 12 / 3.5, false), rough = TX.imgTex('asphalt_02_rough', WID[k] / 3.5, 12 / 3.5, false);
     roadMats[k] = new THREE.MeshStandardMaterial({ map: TX.roadTex(k, WID[k]), roughness: 1, roughnessMap: rough, metalness: 0, normalMap: nor, normalScale: new THREE.Vector2(0.8, 0.8) });
   }
   const byKind = {};
@@ -252,11 +252,11 @@ export function buildWorld(scene, assets) {
     const g = new THREE.PlaneGeometry(w, w, 4, 4).rotateX(-Math.PI / 2); g.translate(n.x, 0.09, n.z);
     // world-space UVs so the photo asphalt matches the surrounding road at the same 3.5 m scale
     const pp = g.attributes.position, uv = g.attributes.uv;
-    for (let i = 0; i < pp.count; i++) uv.setXY(i, pp.getX(i) / 14, pp.getZ(i) / 14);
+    for (let i = 0; i < pp.count; i++) uv.setXY(i, pp.getX(i) / 3.5, pp.getZ(i) / 3.5);
     ip.push(g);
   }
-  // same normal/roughness scale as the roads (3.5 m tiles = 4 per 14 m repeat)
-  addMesh(merge(ip), new THREE.MeshStandardMaterial({ map: pa, roughness: 1, roughnessMap: TX.imgTex('asphalt_pit_lane_rough', 4, 4, false), normalMap: TX.imgTex('asphalt_pit_lane_nor', 4, 4, false), normalScale: new THREE.Vector2(0.8, 0.8) }), false, true);
+  const ipMap = TX.imgTex('asphalt_02_diff') || pa;
+  addMesh(merge(ip), new THREE.MeshStandardMaterial({ map: ipMap, color: 0xaaaab0, roughness: 1, roughnessMap: TX.imgTex('asphalt_02_rough', 1, 1, false), normalMap: TX.imgTex('asphalt_02_nor', 1, 1, false), normalScale: new THREE.Vector2(0.8, 0.8) }), false, true);
   // traffic signals (pole + mast arm + 3-lens head facing each approach)
   {
     const q = new THREE.Quaternion(), m4 = new THREE.Matrix4(), up = V(0, 1, 0);
@@ -315,7 +315,7 @@ export function buildWorld(scene, assets) {
     const o = (rand() - 0.5) * s2.w * 0.5, x = s2.ax + s2.dx * t - s2.dz * o, z = s2.az + s2.dz * t + s2.dx * o;
     manholes.push(new THREE.CircleGeometry(0.36, 20).rotateX(-Math.PI / 2).translate(x, 0.1, z));
   }
-  const paint = new THREE.MeshStandardMaterial({ color: 0xe8e6e0, roughness: 0.75, map: TX.imgTex('asphalt_pit_lane_rough', 0.3, 0.3, false) });
+  const paint = new THREE.MeshStandardMaterial({ color: 0xe8e6e0, roughness: 0.75, map: TX.imgTex('asphalt_02_rough', 0.3, 0.3, false) });
   addMesh(merge(zebra), paint, false, true);
   addMesh(merge(manholes), new THREE.MeshStandardMaterial({ color: 0x2a2826, roughness: 0.5, metalness: 0.8 }), false, true);
 
