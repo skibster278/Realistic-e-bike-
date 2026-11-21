@@ -14,6 +14,7 @@ import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { preloadImages } from './textures.js';
 import { loadImpostor, IMP_UNIFORMS } from './impostor.js';
 import { makeGrass, makeGroundData, makeBlades } from './grass.js';
+import { Dust } from './dust.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { buildWorld, lamps, nightMats, biomeAt, makeMapCanvas, groundH, FOREST, updateChunks, mountainMats, signal, signalMats } from './world.js';
@@ -222,7 +223,7 @@ function crashSound() {
 }
 
 // ------------------------------------------------------------ game state
-let grass = null;
+let grass = null; const dust = new Dust(scene);
 let started = false, camMode = 0, timeOfDay = 17.3, bigMap = false;
 const DAY_MINUTES = 14; // real minutes for a full 24h cycle
 const player = new Player();
@@ -488,6 +489,7 @@ function loop() {
   wildlife.update(dt, player);
   if (grass) grass.update(player.pos.x, player.pos.z);
   updateChunks(player.pos.x, player.pos.z);
+  dust.update(dt, player, bike);
   for (const ax of ['x', 'z']) { const st = signal(ax, traffic.time || 0), m = signalMats[ax]; if (m) for (const c of ['r', 'y', 'g']) m[c].emissiveIntensity = st === c ? 3.2 : 0.02; }
   syncBike(dt);
   updateCamera(dt, inp);

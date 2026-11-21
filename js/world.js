@@ -441,7 +441,7 @@ export function buildWorld(scene, assets) {
   const houseMat = new THREE.MeshStandardMaterial({ map: ht.map, emissiveMap: ht.emissive, emissive: 0xffffff, emissiveIntensity: 0, vertexColors: true, roughness: 0.85 });
   nightMats.push({ mat: houseMat, max: 0.9 });
   const roofMat = new THREE.MeshStandardMaterial({ map: TX.roofTex(), vertexColors: true, roughness: 0.9 });
-  const walls = [], roofs = [], drives = [], leafyHood = [];
+  const walls = [], roofs = [], drives = [], leafyHood = [], houseBits = [], fences = [];
   const HC = [0xf2efe6, 0xd9cdb4, 0xa9b8c4, 0xc7d1b5, 0xe8d8c0, 0x9aa5ad, 0xd6b9a0, 0xffffff, 0x8c9c8a];
   const RC = [0x4a4a4a, 0x5a3e32, 0x3a3f46, 0x6b5a4a, 0x2f2f2f];
   for (let bx = 300; bx < 900; bx += 100) for (let bz = -300; bz < 300; bz += 100) {
@@ -475,6 +475,20 @@ export function buildWorld(scene, assets) {
       const dl = Math.abs(z1 - z0);
       drives.push(new THREE.PlaneGeometry(4, dl).rotateX(-Math.PI / 2).translate(dx, 0.04, (z0 + z1) / 2));
       if (rand() < 0.35) parkedSpots.push({ x: dx, z: (z0 + z1) / 2, yaw: fz > 0 ? 0 : Math.PI });
+      // chimney, porch, mailbox, picket fence along the street edge of the lot
+      if (rand() < 0.45) houseBits.push(colorize(boxGeo(0.9, rh + 1.4, 0.9, cx - w / 2 + 1.6, h + (rh + 1.4) / 2, cz + rr(-d / 4, d / 4)), pick([0x7a3e2e, 0x8a8a86, 0x5a4a40])));
+      if (rand() < 0.55) {
+        const pz = cz + fz * (d / 2 + 1.1), pw = Math.min(w * 0.5, 6), px = cx - w / 4;
+        houseBits.push(colorize(boxGeo(pw, 0.15, 2.4, px, 2.75, pz), 0x4a4a4a));
+        for (const o of [-pw / 2 + 0.15, pw / 2 - 0.15]) houseBits.push(colorize(boxGeo(0.15, 2.7, 0.15, px + o, 1.35, pz + fz * 1.0), 0xf0f0ea));
+        houseBits.push(colorize(boxGeo(pw, 0.25, 2.4, px, 0.12, pz), 0xb0aaa0));
+      }
+      const mz = streetZ - fz * 5.6; houseBits.push(colorize(boxGeo(0.08, 1.05, 0.08, dx + 2.6, 0.52, mz), 0x3a3a3a), colorize(boxGeo(0.26, 0.24, 0.45, dx + 2.6, 1.15, mz), pick([0x2a2a2a, 0x24406a, 0xe8e8e8, 0x7a1a1a])));
+      if (rand() < 0.6) {
+        const fzL = streetZ - fz * 5.2, xL0 = lx - 22, xL1 = dx - 2.2, xR0 = dx + 2.2, xR1 = lx + 22;
+        for (const [a0, a1] of [[xL0, xL1], [xR0, xR1]]) if (a1 - a0 > 1) fences.push(new THREE.PlaneGeometry(a1 - a0, 1.0).translate((a0 + a1) / 2, 0.5, fzL).scale(1, 1, 1));
+        for (const [a0, a1] of [[xL0, xL1], [xR0, xR1]]) { const uvg = fences[fences.length - 1]; }
+      }
       // yard trees
       for (let k = 0; k < 3; k++) {
         const tx = lx + rr(-20, 20), tz = lz + rr(-20, 20);
@@ -485,6 +499,12 @@ export function buildWorld(scene, assets) {
     }
   }
   addMesh(merge(walls), houseMat);
+  addMesh(merge(houseBits), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 }));
+  if (fences.length) {
+    for (const f of fences) { const uv = f.attributes.uv, w = f.parameters ? f.parameters.width : 1; }
+    const fg = merge(fences.map((f) => { const p = f.attributes.position; const xs = []; for (let i = 0; i < p.count; i++) xs.push(p.getX(i)); const len = Math.max(...xs) - Math.min(...xs); const uv = f.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * len / 1.2); return f; }));
+    addMesh(fg, new THREE.MeshStandardMaterial({ map: TX.picketTex(), alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.7 }), true, true);
+  }
   addMesh(merge(roofs), roofMat);
   const drMap = TX.sidewalkTex(); drMap.repeat.set(1, 4);
   addMesh(merge(drives), new THREE.MeshStandardMaterial({ map: drMap, roughness: 0.9 }), false, true);

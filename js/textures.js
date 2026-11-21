@@ -313,3 +313,13 @@ export function plasticDecal(base, accent, text) {
   x.fillStyle = 'rgba(255,255,255,0.9)'; x.font = 'bold italic 30px Arial'; x.fillText(text, 20, 50);
   return tex(c);
 }
+
+// white picket fence, one repeat = 1.2 m (alpha cut-out)
+export function picketTex() {
+  const c = C(128, 128), x = c.getContext('2d');
+  x.clearRect(0, 0, 128, 128); x.fillStyle = '#f2f0ea';
+  for (let i = 0; i < 4; i++) { const px = i * 32 + 8; x.beginPath(); x.moveTo(px, 128); x.lineTo(px, 14); x.lineTo(px + 8, 4); x.lineTo(px + 16, 14); x.lineTo(px + 16, 128); x.fill(); }
+  x.fillRect(0, 34, 128, 9); x.fillRect(0, 96, 128, 9);
+  x.fillStyle = 'rgba(0,0,0,0.12)'; for (let i = 0; i < 4; i++) x.fillRect(i * 32 + 21, 14, 3, 114);
+  const t = tex(c); return t;
+}
