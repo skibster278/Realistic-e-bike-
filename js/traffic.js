@@ -118,9 +118,9 @@ export function makeCar(type, paint) {
 
 // ------------------------------------------------------------ traffic sim
 export class Traffic {
-  constructor(scene) {
+  constructor(scene, density = 1) {
     this.scene = scene; this.cars = [];
-    const counts = { city: 34, hood: 12, hwy: 30, forest: 4 };
+    const counts = { city: 34 * density | 0, hood: 12 * density | 0, hwy: 30 * density | 0, forest: 4 };
     for (const kind in counts) {
       const segs = roads.filter((s) => s.kind === kind);
       for (let i = 0; i < counts[kind]; i++) this.spawn(pick(segs), kind);

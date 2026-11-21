@@ -19,7 +19,7 @@ import { Dust } from './dust.js';
 import { TyreMarks } from './marks.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
-import { buildWorld, lamps, nightMats, biomeAt, makeMapCanvas, groundH, FOREST, updateChunks, mountainMats, signal, signalMats } from './world.js';
+import { buildWorld, lamps, nightMats, biomeAt, makeMapCanvas, groundH, FOREST, updateChunks, mountainMats, signal, signalMats, queryCols } from './world.js';
 import { BIKES, buildBike, setRiderAsset } from './bikes.js';
 import { Traffic, headMat, tailMat, addRealCar } from './traffic.js';
 import { Wildlife } from './animals.js';
@@ -32,18 +32,22 @@ const tick = () => new Promise((r) => setTimeout(r, 16));
 
 // ------------------------------------------------------------ renderer
 const canvas = $('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
-// quality presets: low / medium (tablet default) / high (desktop default)
+// quality presets. 'phone' renders straight to the screen (no post-processing chain) with hardware MSAA at a
+// high pixel ratio: sharp image, low GPU cost. Effects are spent where they matter on bigger GPUs.
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches;
+const IS_PHONE = IS_TOUCH && Math.min(screen.width, screen.height) < 600;
 const PRESETS = {
-  low: { pr: 1, ao: false, shadow: 1024, grass: [5000, 26], bloom: false },
-  medium: { pr: 1.3, ao: 'half', shadow: 2048, grass: [9000, 32], bloom: true },
-  high: { pr: 1.75, ao: 'full', shadow: 4096, grass: [15000, 40], bloom: true }
+  phone: { pr: 2, prMin: 1.5, shadowEvery: 2, direct: true, ao: false, shadow: 1024, shadowR: 45, grass: [4500, 22], far: false, bloom: false, farClip: 2600, traffic: 0.6 },
+  low: { pr: 1.5, prMin: 1, shadowEvery: 2, direct: true, ao: false, shadow: 1024, shadowR: 60, grass: [6000, 26], far: true, bloom: false, farClip: 3600, traffic: 0.8 },
+  medium: { pr: 1.5, prMin: 1, ao: 'half', shadow: 2048, shadowR: 80, grass: [9000, 32], far: true, bloom: true, farClip: 5200, traffic: 1 },
+  high: { pr: 2, prMin: 1.25, ao: 'full', shadow: 4096, shadowR: 80, grass: [15000, 40], far: true, bloom: true, farClip: 5200, traffic: 1 }
 };
-let qualityName = 'medium';
-try { qualityName = localStorage.getItem('voltride.quality') || (IS_TOUCH ? 'medium' : 'high'); } catch (e) { qualityName = IS_TOUCH ? 'medium' : 'high'; }
-if (!PRESETS[qualityName]) qualityName = 'medium';
+const defaultQ = IS_PHONE ? 'phone' : IS_TOUCH ? 'medium' : 'high';
+let qualityName = defaultQ;
+try { qualityName = localStorage.getItem('voltride.q3') || defaultQ; } catch (e) {}
+if (!PRESETS[qualityName]) qualityName = defaultQ;
 let Q = PRESETS[qualityName];
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: !!Q.direct, powerPreference: 'high-performance' });
 let pixelRatio = Math.min(window.devicePixelRatio, Q.pr);
 renderer.setPixelRatio(pixelRatio);
 renderer.setSize(innerWidth, innerHeight);
@@ -53,7 +57,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.85;
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(78, innerWidth / innerHeight, 0.06, 5200);
+const camera = new THREE.PerspectiveCamera(78, innerWidth / innerHeight, 0.06, Q.farClip);
 scene.fog = new THREE.Fog(0xbfd1e5, 250, 3300);
 
 // sky
@@ -89,7 +93,7 @@ const flareHolder = new THREE.Object3D(); flareHolder.add(flare); scene.add(flar
 // lights
 const sun = new THREE.DirectionalLight(0xffffff, 3);
 sun.castShadow = true; sun.shadow.mapSize.set(Q.shadow, Q.shadow);
-const SC = sun.shadow.camera; SC.left = -80; SC.right = 80; SC.top = 80; SC.bottom = -80; SC.near = 1; SC.far = 900;
+const SC = sun.shadow.camera; SC.left = -Q.shadowR; SC.right = Q.shadowR; SC.top = Q.shadowR; SC.bottom = -Q.shadowR; SC.near = 1; SC.far = 900;
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04;
 scene.add(sun, sun.target);
 const hemi = new THREE.HemisphereLight(0xbcd6ff, 0x4a4030, 1.0); scene.add(hemi);
@@ -102,6 +106,7 @@ let envRT = null, hdrTex = null, hdrEnv = null;
 // post
 let composer, bloom;
 function buildComposer() {
+  if (Q.direct) { composer = null; return; }
   if (composer) { composer.renderTarget1.dispose(); composer.renderTarget2.dispose(); }
   const w = Math.floor(innerWidth * pixelRatio), h = Math.floor(innerHeight * pixelRatio);
   const rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, samples: Q.ao ? 0 : 4 });
@@ -121,6 +126,18 @@ function buildComposer() {
   if (Q.ao) { const fx = new ShaderPass(FXAAShader); fx.material.uniforms.resolution.value.set(1 / w, 1 / h); composer.addPass(fx); }
 }
 let aoPass = null, gradePass = null;
+// keep the *horizontal* view wide in portrait (a phone held upright would otherwise see a narrow slit)
+function setFov(vLandscape) {
+  const a = camera.aspect, ref = 16 / 9;
+  if (a < ref) { const h = 2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(vLandscape) / 2) * ref); camera.fov = Math.min(105, THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(h / 2) / a)) * (a < 1 ? 0.72 : 1)); }
+  else camera.fov = vLandscape;
+  camera.updateProjectionMatrix();
+}
+function updateFov() { setFov(camera.fov); }
+function applyPixelRatio() {
+  renderer.setPixelRatio(pixelRatio); renderer.setSize(innerWidth, innerHeight);
+  if (composer) { composer.setPixelRatio(pixelRatio); composer.setSize(innerWidth, innerHeight); } // resizes targets in place: no black frame
+}
 // cinematic grade in display space: gentle S-curve, saturation, warm highlights / cool shadows, vignette
 const GRADE = {
   uniforms: { tDiffuse: { value: null }, vig: { value: 0.32 }, sat: { value: 1.1 }, warm: { value: 0.5 }, blur: { value: 0 } },
@@ -146,7 +163,7 @@ let useBloom = Q.bloom;
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight); buildComposer();
+  applyPixelRatio(); updateFov();
 });
 
 // ------------------------------------------------------------ input
@@ -156,8 +173,8 @@ addEventListener('keydown', (e) => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
   if (!started) return;
   if (e.code === 'KeyC' || e.code === 'KeyV') camMode = (camMode + 1) % 2;
-  if (e.code === 'KeyN') timeOfDay = timeOfDay > 6 && timeOfDay < 19 ? 21 : 17.45;
-  if (e.code === 'KeyG') { lockGolden = !lockGolden; if (lockGolden) timeOfDay = 17.45; toast(lockGolden ? 'Golden hour locked' : 'Day cycle running'); }
+  if (e.code === 'KeyN') timeOfDay = timeOfDay > 6 && timeOfDay < 19 ? 21 : 17.2;
+  if (e.code === 'KeyG') { lockGolden = !lockGolden; if (lockGolden) timeOfDay = 17.3; toast(lockGolden ? 'Golden hour locked' : 'Day cycle running'); }
   if (e.code === 'KeyB') useBloom = !useBloom;
   if (e.code === 'KeyR') killPlayer('Respawning…');
   if (e.code === 'KeyM') bigMap = !bigMap;
@@ -276,7 +293,7 @@ function crashSound() {
 
 // ------------------------------------------------------------ game state
 let grass = null; const dust = new Dust(scene); const marks = new TyreMarks(scene);
-let started = false, camMode = 0, timeOfDay = 17.45, bigMap = false, lockGolden = false;
+let started = false, camMode = 0, timeOfDay = 17.2, bigMap = false, lockGolden = false;
 const DAY_MINUTES = 14; // real minutes for a full 24h cycle
 const player = new Player();
 let bikeIdx = 3, bike = null, traffic, wildlife, mapInfo;
@@ -424,8 +441,11 @@ function setEnvIntensity(v) {
 const sunDir = new THREE.Vector3(); let envTimer = 0, lampTimer = 0, lastNight = -1;
 function updateSky(dt) {
   // cinematic time: golden hours (sunrise/sunset) pass ~4x slower than midday/midnight
-  const golden0 = (timeOfDay > 16.3 && timeOfDay < 19.2) || (timeOfDay > 5.6 && timeOfDay < 8.2);
-  const pace = lockGolden ? 0 : (golden0 ? 0.35 : 1.6);
+  // sunset is ~18:00 here: linger in the golden light before it, move briskly through the murky twilight after it
+  const t0 = timeOfDay;
+  const golden0 = (t0 > 16.0 && t0 < 17.9) || (t0 > 6.2 && t0 < 8.2);
+  const dusk = (t0 >= 17.9 && t0 < 19.0) || (t0 > 5.2 && t0 <= 6.2);
+  const pace = lockGolden ? 0 : golden0 ? 0.3 : dusk ? 3 : 1.6;
   timeOfDay = (timeOfDay + (dt * 24) / (DAY_MINUTES * 60) * pace * (keys['KeyT'] ? 40 : 1)) % 24;
   const a = ((timeOfDay - 6) / 24) * Math.PI * 2;
   sunDir.set(Math.cos(a) * 0.8, Math.sin(a) * 0.85, 0.55).normalize();
@@ -444,13 +464,13 @@ function updateSky(dt) {
   const sunCol = new THREE.Color().setRGB(1, lerp(1, 0.62, golden), lerp(0.96, 0.38, golden));
   sun.color.copy(elev > -0.05 ? sunCol : new THREE.Color(0x8fa8ff));
   sun.intensity = elev > -0.05 ? 4.2 * smoothstep(-0.05, 0.15, elev) : 0.25 * smoothstep(0.05, 0.3, moonDir.y);
-  hemi.intensity = lerp(0.07, 0.6, day) * (1 + golden * 0.7);
+  hemi.intensity = lerp(0.15, 0.6, day) * (1 + golden * 0.7);
   hemi.color.setRGB(lerp(0.35, 0.74, day), lerp(0.42, 0.84, day), lerp(0.7, 1, day)).lerp(new THREE.Color(1.0, 0.78, 0.6), golden * 0.45);
   hemi.groundColor.setRGB(0.29, 0.25, 0.19).lerp(new THREE.Color(0.45, 0.3, 0.2), golden * 0.6);
   const fogDay = new THREE.Color(hdrTex ? 0xc4d2e0 : 0xb9cde0).lerp(new THREE.Color(0xe0b89a), golden * 0.7);
   scene.fog.color.copy(fogDay).lerp(new THREE.Color(0x0a0f1a), night);
   scene.fog.near = lerp(60, 250, day); scene.fog.far = lerp(1100, 3300, day);
-  renderer.toneMappingExposure = lerp(0.95, 0.72, day);
+  renderer.toneMappingExposure = lerp(1.15, 0.72, day);
   starM.opacity = smoothstep(0.0, -0.2, elev);
   flareHolder.position.copy(camera.position).addScaledVector(sunDir, 4000); flare.visible = elev > -0.02;
   moon.position.copy(camera.position).addScaledVector(moonDir, 4300); moon.material.opacity = smoothstep(-0.05, 0.1, moonDir.y);
@@ -459,7 +479,7 @@ function updateSky(dt) {
   const nightAmt = smoothstep(0.12, -0.08, elev);
   for (const nm of nightMats) nm.mat.emissiveIntensity = Math.max(nm.min || 0, nm.max * nightAmt);
   headMat.emissiveIntensity = 0.4 + 3.5 * nightAmt; tailMat.emissiveIntensity = 0.6 + 2.5 * nightAmt;
-  bloom.strength = 0.18 + nightAmt * 0.3;
+  if (bloom) bloom.strength = 0.18 + nightAmt * 0.3;
   if (bike) bike.headlight.intensity = 5 + nightAmt * 55;
   lampTimer -= dt;
   if (lampTimer <= 0) {
@@ -519,7 +539,7 @@ function updateCarLights(dt) {
 }
 
 // ------------------------------------------------------------ camera
-const camPos = new THREE.Vector3(), tmpV = new THREE.Vector3();
+const camPos = new THREE.Vector3(), tmpV = new THREE.Vector3(); let camDist = 5.2;
 let headBob = 0, shake = 0, lookYaw = 0;
 function updateCamera(dt, inp) {
   if (crashCam && tumble && camMode === 1) {
@@ -553,7 +573,10 @@ function updateCamera(dt, inp) {
     const surfShake = player.surface === 'asphalt' ? 0.002 : player.surface === 'concrete' ? 0.004 : 0.012;
     shake = surfShake * Math.min(1, v / 10) + (player.landed || 0) * 0.08;
     player.landed = (player.landed || 0) * Math.exp(-dt * 8);
-    tmpV.copy(bike.headLocal); root.localToWorld(tmpV);
+    // eyes follow the actual head bone (so posture changes never put the camera inside the body), nudged slightly forward
+    const hb = bike.rider.headBone;
+    if (hb) { hb.getWorldPosition(tmpV); const fx = Math.sin(player.yaw), fz = Math.cos(player.yaw); tmpV.x += fx * 0.12; tmpV.z += fz * 0.12; tmpV.y += 0.08; }
+    else { tmpV.copy(bike.headLocal); root.localToWorld(tmpV); }
     camera.position.copy(tmpV);
     camera.position.y += Math.sin(headBob) * 0.006 + (Math.random() - 0.5) * shake;
     camera.position.x += (Math.random() - 0.5) * shake;
@@ -561,18 +584,29 @@ function updateCamera(dt, inp) {
     camera.rotation.y = player.yaw + Math.PI + lookYaw;
     camera.rotation.x = (player.slope + player.pitch) * 0.9 - 0.32 + (Math.random() - 0.5) * shake * 0.5;
     camera.rotation.z = -player.lean * 0.55;
-    camera.fov = 82 + Math.min(10, v * 0.15); camera.updateProjectionMatrix();
+    setFov(82 + Math.min(10, v * 0.15));
   } else {
     bike.rider.setFP(false);
     const fx = Math.sin(player.yaw + lookYaw), fz = Math.cos(player.yaw + lookYaw);
-    const want = tmpV.set(player.pos.x - fx * 5.2, player.pos.y + 2.1, player.pos.z - fz * 5.2);
+    // chase camera with obstruction handling: march from the rider toward the ideal spot and stop before trees/walls/terrain
+    let dist = 5.2;
+    for (let d = 0.8; d <= 5.2; d += 0.4) {
+      const x = player.pos.x - fx * d, z = player.pos.z - fz * d, y = player.pos.y + 1.2 + (0.9 * d) / 5.2;
+      let hit = y < groundH(x, z) + 0.4;
+      if (!hit) for (const c of queryCols(x, z)) { if (c.h < y - 0.2) continue; if (c.t === 0 ? (x - c.x) ** 2 + (z - c.z) ** 2 < (c.r + 0.45) ** 2 : x > c.minX - 0.45 && x < c.maxX + 0.45 && z > c.minZ - 0.45 && z < c.maxZ + 0.45) { hit = true; break; } }
+      if (hit) { dist = Math.max(1.6, d - 0.4); break; }
+    }
+    camDist += (dist - camDist) * (dist < camDist ? 1 - Math.exp(-dt * 18) : 1 - Math.exp(-dt * 2.5)); // snap in fast, ease back out
+    const want = tmpV.set(player.pos.x - fx * camDist, player.pos.y + 1.2 + 0.9 * camDist / 5.2, player.pos.z - fz * camDist);
     const gh = groundH(want.x, want.z) + 0.6; if (want.y < gh) want.y = gh;
-    camPos.lerp(want, 1 - Math.exp(-dt * 6));
+    camPos.lerp(want, 1 - Math.exp(-dt * 7));
     if (camPos.distanceTo(want) > 20) camPos.copy(want);
+    // never closer than 1.4 m to the rider horizontally (stops the camera clipping through the body after sharp turns)
+    { const dx = camPos.x - player.pos.x, dz = camPos.z - player.pos.z, d = Math.hypot(dx, dz); if (d < 1.4) { const k = 1.4 / Math.max(d, 1e-3); camPos.x = player.pos.x + (d > 1e-3 ? dx * k : -fx * 1.4); camPos.z = player.pos.z + (d > 1e-3 ? dz * k : -fz * 1.4); } }
     camera.position.copy(camPos);
     camera.rotation.set(0, 0, 0);
     camera.lookAt(player.pos.x + fx * 2, player.pos.y + 1.1, player.pos.z + fz * 2);
-    camera.fov = 70 + Math.min(12, v * 0.2); camera.updateProjectionMatrix();
+    setFov(70 + Math.min(12, v * 0.2));
   }
 }
 
@@ -613,7 +647,7 @@ function syncBike(dt) {
 
 // ------------------------------------------------------------ main loop
 const clock = new THREE.Clock();
-let frameAcc = 0, frames = 0, fpsShown = 0, qualityTimer = 0;
+let shadowTick = 0; let frameAcc = 0, frames = 0, fpsShown = 0, qualityTimer = 0;
 function loop() {
   if (window.__capture) return; // frame-stepped capture drives frame() directly
   requestAnimationFrame(loop);
@@ -665,15 +699,19 @@ function frame(rawDt) {
     dashT -= dt; if (dashT <= 0) { dashT = 0.1; drawDash(); }
     if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }
   }
-  if (!window.__norender) { composer.passes[1].enabled = useBloom; composer.render(); }
+  if (Q.shadowEvery) { renderer.shadowMap.autoUpdate = false; shadowTick = (shadowTick + 1) % Q.shadowEvery; if (shadowTick === 0) renderer.shadowMap.needsUpdate = true; }
+  if (!window.__norender) { if (composer) { composer.passes[1].enabled = useBloom; composer.render(); } else renderer.render(scene, camera); }
   // adaptive quality
   frameAcc += rawDt; frames++;
   if (frameAcc > 1) {
     fpsShown = Math.round(frames / frameAcc); $('fps').textContent = fpsShown + ' fps'; frames = 0; frameAcc = 0;
     qualityTimer++;
-    if (qualityTimer > 3 && fpsShown < 32 && pixelRatio > 0.7) {
-      pixelRatio = Math.max(0.7, pixelRatio - 0.15); renderer.setPixelRatio(pixelRatio); buildComposer(); qualityTimer = 0;
-    }
+    // gentle dynamic resolution: never below the preset floor (stays sharp), steps back up when there's headroom
+    const maxPr = Math.min(window.devicePixelRatio, Q.pr);
+    let np = pixelRatio;
+    if (qualityTimer > 2 && fpsShown < 28 && pixelRatio > Q.prMin) np = Math.max(Q.prMin, pixelRatio - 0.125);
+    else if (qualityTimer > 5 && fpsShown > 52 && pixelRatio < maxPr) np = Math.min(maxPr, pixelRatio + 0.125);
+    if (np !== pixelRatio) { pixelRatio = np; applyPixelRatio(); qualityTimer = 0; }
   }
 }
 
@@ -695,7 +733,7 @@ function buildMenu() {
   }));
   document.querySelectorAll('[data-q]').forEach((b) => {
     b.classList.toggle('sel', b.dataset.q === qualityName);
-    b.onclick = () => { if (b.dataset.q === qualityName) return; try { localStorage.setItem('voltride.quality', b.dataset.q); } catch (e) {} location.reload(); };
+    b.onclick = () => { if (b.dataset.q === qualityName) return; try { localStorage.setItem('voltride.q3', b.dataset.q); } catch (e) {} location.reload(); };
   });
   $('go').onclick = () => {
     initAudio(); audio && audio.ac.resume();
@@ -744,9 +782,9 @@ function loadRealModels() {
     // near: geometry blades; mid: grass cards in a ring; far: big sparse cards
     const near = makeBlades(gd, Q.grass[0], Q.grass[1] * 0.62);
     const mid = makeGrass(grassTex, gd, Q.grass[0] * 0.55 | 0, Q.grass[1] * 1.4, 0.4, 1.1);
-    const far = makeGrass(grassTex, gd, Q.grass[0] * 0.5 | 0, Q.grass[1] * 3.2, 0.42, 1.9);
-    scene.add(near, mid, far);
-    grass = { update: (x, z) => { near.update(x, z); mid.update(x, z); far.update(x, z); } }; }
+    const far = Q.far ? makeGrass(grassTex, gd, Q.grass[0] * 0.5 | 0, Q.grass[1] * 3.2, 0.42, 1.9) : null;
+    scene.add(near, mid); if (far) scene.add(far);
+    grass = { update: (x, z) => { near.update(x, z); mid.update(x, z); if (far) far.update(x, z); } }; }
   status('Loading cars…');
   {
     const draco = new DRACOLoader(); draco.setDecoderPath('./lib/jsm/libs/draco/gltf/');
@@ -757,7 +795,7 @@ function loadRealModels() {
     ]);
   }
   status('Spawning traffic…'); await tick();
-  traffic = new Traffic(scene);
+  traffic = new Traffic(scene, Q.traffic);
   status('Releasing wildlife…'); await tick();
   wildlife = new Wildlife(scene);
   mapInfo = makeMapCanvas();
