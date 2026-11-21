@@ -53,6 +53,7 @@ h3{margin:22px 0 10px;text-transform:uppercase;font-size:13px;letter-spacing:2px
 #stick .lbl{position:absolute;bottom:-20px;width:100%;text-align:center;font-size:10px;letter-spacing:2px;opacity:.55;font-weight:700}
 #pads{position:absolute;right:calc(20px + env(safe-area-inset-right));bottom:calc(22px + env(safe-area-inset-bottom));display:flex;gap:12px;align-items:flex-end}
 .rbtns{display:flex;flex-direction:column;gap:12px;margin-right:4px}
+.tbtn,.pedal,#stick{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 .tbtn{pointer-events:auto;touch-action:none;width:74px;height:74px;border-radius:50%;background:rgba(255,255,255,.13);border:2px solid rgba(255,255,255,.32);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);color:#fff;transition:transform .06s,background .06s}
 .tbtn svg{width:28px;height:28px}.tbtn span{font-size:9px;font-weight:800;letter-spacing:1px;opacity:.85}
 .tbtn.sm{width:52px;height:52px}.tbtn.sm svg{width:22px;height:22px}.tbtn .tx{font-size:11px;opacity:1}

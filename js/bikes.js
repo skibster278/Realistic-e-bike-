@@ -19,9 +19,10 @@ export function setRiderAsset(gltf) { riderAsset = gltf; }
 
 // ---------------------------------------------------------------- materials
 const M = {};
+function markShared() { for (const k in M) M[k].userData.shared = true; }
 function mats(spec) {
   const std = (o) => new THREE.MeshStandardMaterial(o);
-  return {
+  const out = {
     plastic: new THREE.MeshPhysicalMaterial({ color: spec.color, roughness: 0.32, metalness: 0, clearcoat: 0.9, clearcoatRoughness: 0.15 }),
     accent: new THREE.MeshPhysicalMaterial({ color: spec.accent, roughness: 0.35, clearcoat: 0.7 }),
     frame: std({ color: spec.frame, roughness: 0.32, metalness: 0.85 }),
@@ -39,6 +40,7 @@ function mats(spec) {
     light: new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff4e0, emissiveIntensity: 3 }),
     tail: new THREE.MeshStandardMaterial({ color: 0x550000, emissive: 0xff1010, emissiveIntensity: 2 })
   };
+  markShared(); return out;
 }
 function discAlpha() {
   const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d');
@@ -407,7 +409,7 @@ function twoBoneIK(upper, lower, end, target, pole) {
 let riderMat = null;
 function riderMaterial(src) {
   if (riderMat) return riderMat;
-  riderMat = src.clone();
+  riderMat = src.clone(); riderMat.userData.shared = true;
   // turn the desert camo into dark riding gear (keeps all the fabric/strap detail)
   riderMat.onBeforeCompile = (sh) => {
     sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>

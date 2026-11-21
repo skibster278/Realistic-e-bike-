@@ -287,7 +287,18 @@ let safeHistory = [], deadTimer = 0, crashCam = null;
 
 function selectBike(i, live) {
   bikeIdx = i;
-  if (bike) scene.remove(bike.root);
+  if (bike) {
+    scene.remove(bike.root);
+    // free GPU memory of the old bike (geometry is per-bike; skinned rider meshes share the cached asset, keep those)
+    const riderG = bike.rider && bike.rider.group;
+    bike.root.traverse((o) => {
+      if (!o.isMesh || o.isSkinnedMesh) return;
+      for (let q = o; q; q = q.parent) if (q === riderG) return;
+      o.geometry.dispose();
+      for (const m of [].concat(o.material)) if (m && !m.userData.shared) { if (m.map && m.map.isCanvasTexture) m.map.dispose(); m.dispose(); }
+    });
+    if (bike.headlight) bike.headlight.dispose();
+  }
   bike = buildBike(BIKES[i]);
   scene.add(bike.root);
   player.setBike(BIKES[i]);
@@ -653,7 +664,7 @@ function frame(rawDt) {
     dashT -= dt; if (dashT <= 0) { dashT = 0.1; drawDash(); }
     if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').classList.remove('show'); }
   }
-  composer.passes[1].enabled = useBloom; composer.render();
+  if (!window.__norender) { composer.passes[1].enabled = useBloom; composer.render(); }
   // adaptive quality
   frameAcc += rawDt; frames++;
   if (frameAcc > 1) {
@@ -759,4 +770,4 @@ function loadRealModels() {
   loadRealModels();
   loop();
 })();
-window.__game = { player, scene, camera, renderer, get traffic() { return traffic; }, get wildlife() { return wildlife; }, get bike() { return bike; }, setTime: (t) => (timeOfDay = t), setCam: (m) => (camMode = m), keys, step: (dt) => frame(dt), place: (x, z, yaw) => placePlayer(x, z, yaw), startCapture: () => { window.__capture = true; } };
+window.__game = { player, scene, camera, renderer, get traffic() { return traffic; }, get wildlife() { return wildlife; }, get bike() { return bike; }, setTime: (t) => (timeOfDay = t), setCam: (m) => (camMode = m), keys, touch, selectBike: (i) => selectBike(i, false), step: (dt) => frame(dt), place: (x, z, yaw) => placePlayer(x, z, yaw), startCapture: () => { window.__capture = true; } };

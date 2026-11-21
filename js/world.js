@@ -133,7 +133,7 @@ for (const lx of [-500, -475, -450]) {
 addRamp(30, 25, 0, 5, 5, 1.4); addRamp(70, 40, Math.PI, 5, 5, 1.6); addRamp(50, 60, Math.PI / 2, 6, 6, 2.0);
 addRamp(35, 72, -Math.PI / 2, 4, 4, 1.0); addRamp(68, 75, 0.6, 5, 5, 1.3);
 // countryside big jump near forest road
-addRamp(-330, -5, -Math.PI / 2, 8, 6, 2.4, 'kick');
+addRamp(-336, -24, -Math.PI / 2, 8, 6, 2.4, 'kick'); // beside (not on) the forest road
 function rampH(x, z) {
   let best = 0;
   for (const r of ramps) {
@@ -666,7 +666,7 @@ export function buildWorld(scene, assets) {
     if (x > FOREST.x0 - 5 && x < FOREST.x1 + 5 && z > FOREST.z0 - 5 && z < FOREST.z1 + 5) continue;
     if (x > CITY.x0 - 15 && x < HOOD.x1 + 15 && z > CITY.z0 - 15 && z < CITY.z1 + 15) continue;
     if (!clearOf(x, z, 4)) continue;
-    if (Math.abs(x + 330) < 30 && Math.abs(z) < 30) continue;
+    if (Math.abs(x + 336) < 30 && Math.abs(z + 24) < 30) continue;
     const s = rr(0.7, 1.4);
     (rand() < 0.4 ? pines : leafs).push([x, -0.1, z, s]); addCircle(x, z, 0.4 * s, 20);
   }

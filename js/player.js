@@ -78,21 +78,31 @@ export class Player {
 
     // ---------------- wheelie / pitch dynamics
     const pull = inp.lift ? 1 : 0, push = inp.dive ? 1 : 0;
+    const pullEdge = pull && !this.pullPrev; this.pullPrev = pull;
     if (!this.air) {
       const pBal = 1.2;
       const grav = -9.5 * Math.sin(pBal - this.pitch);
       // wheelie control: power alone can't lift the front unless the rider asks for it (Shift / WHEELIE)
       let lift = (pull || this.pitch > 0.15) ? Math.max(0, a - 3.2) * 1.6 * (this.isMoto ? 1 : 0.5) : 0;
       if (!pull && this.pitch > 0.02 && this.pitch < 0.15) { this.pitchVel = Math.min(this.pitchVel, 0); }
-      lift += pull * (this.isMoto ? (4.5 + Math.min(4, s.power / 6000)) : 10.5) * (av < 25 ? 1 : 0.5) * (thr > 0.1 || !this.isMoto ? 1 : 0.4);
+      // rider-initiated wheelie: a "pop" when the button is first pressed, then sustained lift while on the gas.
+      // Stronger bikes lift harder; it fades at high speed (aero + less torque) but stays possible to ~90 km/h.
+      const spd = Math.min(1, Math.max(0.45, 1 - (av - 14) / 30));
+      if (pullEdge && this.pitch < 0.1 && av > 0.5) this.pitchVel += (this.isMoto ? 1.6 + Math.min(1, s.power / 30000) : 2.0) * spd;
+      lift += pull * (this.isMoto ? 11 + Math.min(2.5, s.power / 12000) : 11) * spd * (thr > 0.1 || !this.isMoto ? 1 : 0.35);
       if (!this.isMoto) lift += pull * thr * 1.5;
+      // balance-point assist: the rider feathers power/rear brake as the front climbs, so a held wheelie
+      // settles around ~50deg instead of looping (push past it with throttle on a hill or a big pop and you still can)
+      if (pull && this.pitch > 0.5) lift *= Math.max(0, 1 - (this.pitch - 0.5) / 0.38);
+      if (!pull && this.pitch > 0.15) lift *= Math.max(0, 1 - (this.pitch - 0.15) / 0.6);
       let tq = lift + grav;
+      if (pull && this.pitch > 0.78 && this.pitchVel > 0) tq -= 16 * (this.pitch - 0.7); // automatic rear-brake dab near the balance point
       if (this.pitch > 0.01) {
         tq -= (inp.brake > 0 ? 14 : 0) + push * 6;
       }
       if (this.pitch <= 0 && tq < 0) { this.pitch = 0; this.pitchVel = 0; }
       else {
-        this.pitchVel += tq * dt; this.pitchVel *= Math.exp(-dt * 1.5);
+        this.pitchVel += tq * dt; this.pitchVel *= Math.exp(-dt * (pull ? 3.2 : 1.5));
         this.pitch += this.pitchVel * dt;
         if (this.pitch < 0) { this.pitch = 0; this.pitchVel = Math.max(0, -this.pitchVel * 0.2); }
       }

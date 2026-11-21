@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { roads, nodes, LANES, SPEED, parkedSpots, signal, isSignalNode } from './world.js';
+import { roads, nodes, LANES, SPEED, parkedSpots, signal, isSignalNode, crossHalf } from './world.js';
 import { merge, boxGeo, rand, rr, pick, V } from './util.js';
 
 const PAINT = [0xf2f2f2, 0x111111, 0x8a8f96, 0x1f3a6e, 0x8c1010, 0x3a3f44, 0xc9c9c4, 0x2b4a2b, 0xd8b23a, 0x5a2a6e, 0xb8b8b8, 0x7a1a1a];
@@ -56,18 +56,25 @@ const glassReal = new THREE.MeshPhysicalMaterial({ color: 0x10161c, roughness: 0
 // normalise a loaded car: length along +Z (front = +Z), wheels on y=0, centred, given length
 export function addRealCar(scene, length, isPaint) {
   const wrap = new THREE.Group(); wrap.add(scene);
-  let box = new THREE.Box3().setFromObject(wrap), size = box.getSize(new THREE.Vector3());
+  const meshes = []; scene.traverse((o) => { if (o.isMesh) meshes.push(o); });
+  const boxOf = (list) => { wrap.updateMatrixWorld(true); const b = new THREE.Box3(); for (const o of list) b.union(new THREE.Box3().setFromObject(o)); return b; };
+  // ignore shadow catchers / ground planes (very flat and wide) when measuring the car
+  wrap.updateMatrixWorld(true);
+  const body = meshes.filter((o) => { const b = new THREE.Box3().setFromObject(o), sz = b.getSize(new THREE.Vector3()); return !(sz.y < 0.02 * Math.max(sz.x, sz.z) && Math.max(sz.x, sz.z) > 0.5 * Math.max(1e-6, boxOf(meshes).getSize(new THREE.Vector3()).length())) && !/shadow|ground|floor/i.test(o.name); });
+  let size = boxOf(body).getSize(new THREE.Vector3());
   if (size.x > size.z) scene.rotation.y = Math.PI / 2;
-  wrap.updateMatrixWorld(true);
-  // find the front using headlight meshes
-  let hl = null; scene.traverse((o) => { if (o.isMesh && /head/i.test(o.material.name || '')) hl = o; });
-  box = new THREE.Box3().setFromObject(wrap); const c = box.getCenter(new THREE.Vector3());
-  if (hl) { const hc = new THREE.Box3().setFromObject(hl).getCenter(new THREE.Vector3()); if (hc.z < c.z) scene.rotation.y += Math.PI; }
-  wrap.updateMatrixWorld(true);
-  box = new THREE.Box3().setFromObject(wrap); size = box.getSize(new THREE.Vector3());
-  const k = length / size.z; scene.scale.multiplyScalar(k);
-  wrap.updateMatrixWorld(true); box = new THREE.Box3().setFromObject(wrap); const c2 = box.getCenter(new THREE.Vector3());
-  scene.position.x -= c2.x; scene.position.z -= c2.z; scene.position.y -= box.min.y;
+  // which end is the front? wheel node names (…_fl/_fr vs …_rl/_rr), else headlight vs tail-light materials
+  const named = (re) => { const out = []; scene.traverse((o) => { if (re.test(o.name || '')) o.traverse((m) => m.isMesh && out.push(m)); }); return out; };
+  let fr = named(/(^|_)(wheel|rim|tire|tyre|brake|caliper)?_?f[lr]$/i), rr2 = named(/(^|_)(wheel|rim|tire|tyre|brake|caliper)?_?r[lr]$/i);
+  if (!fr.length || !rr2.length) { fr = body.filter((o) => /head/i.test(o.material.name || '')); rr2 = body.filter((o) => /brake|tail/i.test(o.material.name || '')); }
+  if (fr.length && rr2.length && boxOf(fr).getCenter(new THREE.Vector3()).z < boxOf(rr2).getCenter(new THREE.Vector3()).z) scene.rotation.y += Math.PI;
+  size = boxOf(body).getSize(new THREE.Vector3());
+  scene.scale.multiplyScalar(length / size.z);
+  // sit on the tyres (lowest point of the wheels), centred on the body
+  const tyres = body.filter((o) => /tire|tyre|wheel|rubber/i.test((o.material.name || '') + ' ' + (o.name || '')));
+  const bb = boxOf(body), c2 = bb.getCenter(new THREE.Vector3()), groundY = tyres.length ? boxOf(tyres).min.y : bb.min.y;
+  scene.position.x -= c2.x; scene.position.z -= c2.z; scene.position.y -= groundY;
+  for (const o of meshes) if (!body.includes(o)) o.visible = false;
   scene.traverse((o) => {
     if (!o.isMesh) return;
     o.castShadow = true;
@@ -77,8 +84,8 @@ export function addRealCar(scene, length, isPaint) {
     if (/head/i.test(mm.name || '')) o.userData.head = true;
     if (/brake|tail/i.test(mm.name || '')) o.userData.tail = true;
   });
-  wrap.updateMatrixWorld(true); box = new THREE.Box3().setFromObject(wrap); size = box.getSize(new THREE.Vector3());
-  realCars.push({ proto: wrap, L: size.z, W: size.x });
+  const fb = boxOf(body), fs = fb.getSize(new THREE.Vector3());
+  realCars.push({ proto: wrap, L: fs.z, W: fs.x, name: scene.name });
 }
 export function hasRealCars() { return realCars.length > 0; }
 
@@ -153,7 +160,7 @@ export class Traffic {
     const p = this.lanePoint(car, car.s); car.pos.set(p.x, 0, p.z);
     const p2 = this.lanePoint(car, car.s + 3); car.yaw = Math.atan2(p2.x - p.x, p2.z - p.z);
     car.speed = car.vmax * 0.8;
-    this.cars.push(car);
+    car.id = this.cars.length; this.cars.push(car);
   }
   endNode(seg, dir) { return dir > 0 ? [seg.bx, seg.bz] : [seg.ax, seg.az]; }
   chooseNext(car) {
@@ -167,12 +174,46 @@ export class Traffic {
     const l = pick(opts);
     return { seg: l.seg, dir: l.end === 0 ? 1 : -1 };
   }
-  lanePoint(car, s, seg = car.seg, dir = car.dir, lane = car.lane) {
-    if (s > seg.len && seg === car.seg) return this.lanePoint(car, s - seg.len, car.next.seg, car.next.dir, LANES[car.next.seg.kind].includes(lane) ? lane : LANES[car.next.seg.kind][0]);
-    const t = dir > 0 ? s : seg.len - s;
-    const fx = seg.dx * dir, fz = seg.dz * dir;
-    const rx = -fz, rz = fx;
-    return { x: seg.ax + seg.dx * t + rx * lane, z: seg.az + seg.dz * t + rz * lane, fx, fz };
+  // straight lane point on a segment (s measured from the segment's start in the driving direction)
+  raw(seg, dir, lane, s) {
+    const t = dir > 0 ? s : seg.len - s, fx = seg.dx * dir, fz = seg.dz * dir;
+    return { x: seg.ax + seg.dx * t - fz * lane, z: seg.az + seg.dz * t + fx * lane, fx, fz };
+  }
+  mapLane(kind, lane) { const L = LANES[kind]; return L.includes(lane) ? lane : L[Math.min(L.length - 1, lane > 4 ? 1 : 0)]; }
+  // smooth quadratic turn path through the junction: from our lane entering it to the target lane leaving it
+  curve(A, dirA, laneA, B, dirB, laneB) {
+    const ch1 = crossHalf(A, dirA > 0 ? 1 : 0) + 1.2, ch2 = crossHalf(B, dirB > 0 ? 0 : 1) + 1.2;
+    const P0 = this.raw(A, dirA, laneA, A.len - ch1), P2 = this.raw(B, dirB, laneB, ch2);
+    const f1x = A.dx * dirA, f1z = A.dz * dirA, f2x = B.dx * dirB, f2z = B.dz * dirB;
+    const cr = f1x * f2z - f1z * f2x;
+    let P1;
+    if (Math.abs(cr) < 0.3) P1 = { x: (P0.x + P2.x) / 2, z: (P0.z + P2.z) / 2 };
+    else { const dx = P2.x - P0.x, dz = P2.z - P0.z, t = (dx * f2z - dz * f2x) / cr; P1 = { x: P0.x + f1x * t, z: P0.z + f1z * t }; }
+    return { P0, P1, P2, ch1, ch2 };
+  }
+  bez(cv, u) { const a = (1 - u) * (1 - u), b = 2 * u * (1 - u), c = u * u; return { x: a * cv.P0.x + b * cv.P1.x + c * cv.P2.x, z: a * cv.P0.z + b * cv.P1.z + c * cv.P2.z }; }
+  lanePoint(car, s) {
+    const A = car.seg, n = car.next;
+    const ch1 = crossHalf(A, car.dir > 0 ? 1 : 0) + 1.2;
+    if (s > A.len - ch1) {
+      const laneB = this.mapLane(n.seg.kind, car.lane);
+      const cv = this.curve(A, car.dir, car.lane, n.seg, n.dir, laneB), u = (s - (A.len - cv.ch1)) / (cv.ch1 + cv.ch2);
+      return u < 1 ? this.bez(cv, u) : this.raw(n.seg, n.dir, laneB, s - A.len);
+    }
+    if (car.prev) {
+      const pv = car.prev, ch2 = crossHalf(A, car.dir > 0 ? 0 : 1) + 1.2;
+      if (s < ch2) { const cv = this.curve(pv.seg, pv.dir, pv.lane, A, car.dir, car.lane), u = (s + cv.ch1) / (cv.ch1 + cv.ch2); return this.bez(cv, Math.max(0, u)); }
+    }
+    return this.raw(A, car.dir, car.lane, s);
+  }
+  advance(c, ds) {
+    c.s += ds;
+    while (c.s >= c.seg.len) {
+      c.s -= c.seg.len;
+      c.prev = { seg: c.seg, dir: c.dir, lane: c.lane };
+      c.lane = this.mapLane(c.next.seg.kind, c.lane);
+      c.seg = c.next.seg; c.dir = c.next.dir; c.next = this.chooseNext(c);
+    }
   }
   update(dt, player) {
     this.time = (this.time || 0) + dt;
@@ -189,7 +230,7 @@ export class Traffic {
       const fwdX = Math.sin(c.yaw), fwdZ = Math.cos(c.yaw);
       const remain = c.seg.len - c.s;
       const turning = c.next.seg.dx * c.next.dir !== c.seg.dx * c.dir || c.next.seg.dz * c.next.dir !== c.seg.dz * c.dir;
-      if (turning && remain < 30) target = Math.min(target, 6 + remain * 0.3);
+      if (turning && remain < 55) target = Math.min(target, (c.L > 8 ? 3.2 : 6) + Math.max(0, remain - 8) * 0.28);
       // stop at red / amber lights
       if (c.seg.kind === 'city' && remain < 45) {
         const [ex, ez] = this.endNode(c.seg, c.dir);
@@ -205,9 +246,15 @@ export class Traffic {
         if (o === c) continue;
         const dx = o.pos.x - c.pos.x, dz = o.pos.z - c.pos.z;
         const ahead = dx * fwdX + dz * fwdZ; if (ahead <= 0 || ahead > 40) continue;
-        const side = Math.abs(dx * fwdZ - dz * fwdX); if (side > 2.2) continue;
-        const gap = ahead - (c.L + o.L) / 2;
-        target = Math.min(target, Math.max(0, (gap - 3) * 0.6 + o.speed * 0.5));
+        const side = Math.abs(dx * fwdZ - dz * fwdX);
+        const same = Math.sin(o.yaw) * fwdX + Math.cos(o.yaw) * fwdZ > 0.6;
+        if (same) { // queue behind traffic going our way
+          if (side > 2.0) continue;
+          const gap = ahead - (c.L + o.L) / 2;
+          target = Math.min(target, Math.max(0, (gap - 3) * 0.6 + o.speed * 0.5));
+        } else if (ahead < c.L / 2 + 5 && side < 1.6 + o.W / 2 && c.id > o.id) {
+          target = 0; // crossing conflict right in front: lower id goes first (no mutual deadlock)
+        }
       }
       // player ahead
       if (player && player.alive) {
@@ -217,20 +264,29 @@ export class Traffic {
       }
       if (target > c.speed) c.speed = Math.min(target, c.speed + 2.5 * dt);
       else c.speed = Math.max(target, c.speed - 8 * dt);
-      c.s += c.speed * dt;
-      if (c.s >= c.seg.len) {
-        c.s -= c.seg.len;
-        const lanes = LANES[c.next.seg.kind];
-        if (!lanes.includes(c.lane)) c.lane = lanes[Math.min(lanes.length - 1, c.lane > 4 ? 1 : 0)];
-        c.seg = c.next.seg; c.dir = c.next.dir; c.next = this.chooseNext(c);
+      this.advance(c, c.speed * dt);
+      // keep the path parameter honest: re-sync it to the car's real progress along the segment
+      {
+        const sg = c.seg, tAlong = (c.pos.x - sg.ax) * sg.dx + (c.pos.z - sg.az) * sg.dz, sp = c.dir > 0 ? tAlong : sg.len - tAlong;
+        const straight = c.s > crossHalf(sg, c.dir > 0 ? 0 : 1) + 2 && c.s < sg.len - crossHalf(sg, c.dir > 0 ? 1 : 0) - 2;
+        if (straight && sp > 0 && sp < sg.len && Math.abs(sp - c.s) > 1.5) c.s += (sp - c.s) * 0.2;
       }
-      const p = this.lanePoint(c, c.s);
-      const k = 1 - Math.exp(-dt * 3);
-      c.pos.x += (p.x - c.pos.x) * k; c.pos.z += (p.z - c.pos.z) * k;
-      const la = this.lanePoint(c, c.s + 5 + c.L * 0.3);
+      // pure-pursuit steering: always drive forward, turn toward a point ahead in our lane, limited turn radius
+      const turningSoon = (c.seg.len - c.s) < 22 && (c.next.seg.dx * c.next.dir !== c.seg.dx * c.dir || c.next.seg.dz * c.next.dir !== c.seg.dz * c.dir);
+      const look = (turningSoon || c.s < 12 ? (c.L > 8 ? 3 : 4.5) : Math.max(6, c.speed * 0.7)) + c.L * (c.L > 8 && (turningSoon || c.s < 12) ? 0.12 : 0.25);
+      let la = this.lanePoint(c, c.s + look);
+      // never chase a point behind us: if the car got ahead of its path parameter (fast corners), catch the parameter up
+      for (let k = 0; k < 40; k++) {
+        const ahead = (la.x - c.pos.x) * Math.sin(c.yaw) + (la.z - c.pos.z) * Math.cos(c.yaw);
+        if (ahead > look * 0.45) break;
+        this.advance(c, 1); la = this.lanePoint(c, c.s + look);
+      }
       const wantYaw = Math.atan2(la.x - c.pos.x, la.z - c.pos.z);
       let dy = wantYaw - c.yaw; while (dy > Math.PI) dy -= Math.PI * 2; while (dy < -Math.PI) dy += Math.PI * 2;
-      c.yaw += dy * Math.min(1, dt * 4);
+      const rMin = c.L > 8 ? 5.5 : 4.5, maxTurn = (c.speed / rMin) * dt;
+      c.yaw += Math.max(-maxTurn, Math.min(maxTurn, dy));
+      if (c.yaw > Math.PI) c.yaw -= Math.PI * 2; else if (c.yaw < -Math.PI) c.yaw += Math.PI * 2;
+      c.pos.x += Math.sin(c.yaw) * c.speed * dt; c.pos.z += Math.cos(c.yaw) * c.speed * dt;
       c.mesh.rotation.y = c.yaw;
     }
   }
