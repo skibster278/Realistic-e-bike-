@@ -244,7 +244,15 @@ function selectBike(i, live) {
 }
 function spawnAt(name) {
   const [x, z, yaw] = SPAWNS[name];
+  placePlayer(x, z, yaw);
+}
+// teleport + clear every bit of crash state (tumble, crash cam, fade, pending respawn)
+function placePlayer(x, z, yaw) {
+  if (tumble) { scene.remove(tumble.rider.o); tumble = null; selectBike(bikeIdx, false); }
+  crashCam = null; deadTimer = -20; safeHistory = [];
+  $('fade').style.opacity = 0; $('crash').classList.remove('show');
   player.reset(x, z, yaw);
+  if (syncBike.s) Object.assign(syncBike.s, { f: 0, fv: 0, r: 0, rv: 0 });
 }
 function killPlayer(reason) {
   if (!player.alive && deadTimer > 0) return;
@@ -261,10 +269,11 @@ function onCrash(reason) {
   const riderObj = bike.rider.group; const wp = new THREE.Vector3(), wq = new THREE.Quaternion();
   riderObj.getWorldPosition(wp); riderObj.getWorldQuaternion(wq); scene.attach(riderObj);
   tumble = {
-    bike: { o: r, v: new THREE.Vector3(fx * v * 0.55, 1.5 + v * 0.08, fz * v * 0.55), w: new THREE.Vector3((Math.random() - 0.5) * 5 + v * 0.25, (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 7), lift: 0.35 },
-    rider: { o: riderObj, v: new THREE.Vector3(fx * v * 0.8, 2.5 + v * 0.1, fz * v * 0.8), w: new THREE.Vector3(v * 0.35 + 2, (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 4), lift: 0.25 }
+    bike: { o: r, v: new THREE.Vector3(fx * v * 0.35, 2.6 + v * 0.06, fz * v * 0.35), w: new THREE.Vector3((Math.random() - 0.5) * 4 + 2, (Math.random() - 0.5) * 3, (Math.random() < 0.5 ? -1 : 1) * (3 + v * 0.2)), lift: 0.45 },
+    rider: { o: riderObj, v: new THREE.Vector3(fx * v * 0.5, 3.2 + v * 0.08, fz * v * 0.5), w: new THREE.Vector3(3 + v * 0.15, (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 3), lift: 0.3 }
   };
-  fadeDelay = camMode === 0 ? 0.45 : 1.1;
+  tumble.bike.o.position.y += 0.3; tumble.rider.o.position.y += 0.2;
+  fadeDelay = camMode === 0 ? 0.45 : 1.4;
 }
 let tumble = null, fadeDelay = 0.45;
 const _tq = new THREE.Quaternion(), _te = new THREE.Vector3();
@@ -274,7 +283,7 @@ function updateTumble(dt) {
     b.v.y -= 9.81 * dt;
     o.position.addScaledVector(b.v, dt);
     const gh = groundH(o.position.x, o.position.z) + b.lift;
-    if (o.position.y < gh) {
+    if (o.position.y < gh && b.v.y <= 0) {
       o.position.y = gh;
       if (b.v.y < -1.5) { b.v.y *= -0.32; b.w.multiplyScalar(0.7); } else b.v.y = 0;
       const f = Math.exp(-dt * 2.6); b.v.x *= f; b.v.z *= f; b.w.multiplyScalar(Math.exp(-dt * 2.2));
@@ -287,10 +296,7 @@ function respawn() {
   const now = performance.now() / 1000;
   let spot = null;
   for (let i = safeHistory.length - 1; i >= 0; i--) if (now - safeHistory[i].t > 4) { spot = safeHistory[i]; break; }
-  if (!spot) { spawnAt(spawnName); } else player.reset(spot.x, spot.z, spot.yaw);
-  safeHistory = [];
-  $('fade').style.opacity = 0; $('crash').classList.remove('show'); crashCam = null;
-  if (tumble) { scene.remove(tumble.rider.o); tumble = null; selectBike(bikeIdx, false); }
+  if (!spot) spawnAt(spawnName); else placePlayer(spot.x, spot.z, spot.yaw);
 }
 
 // ------------------------------------------------------------ HUD
@@ -452,9 +458,10 @@ const camPos = new THREE.Vector3(), tmpV = new THREE.Vector3();
 let headBob = 0, shake = 0, lookYaw = 0;
 function updateCamera(dt, inp) {
   if (crashCam && tumble && camMode === 1) {
-    const t = tumble.bike.o.position;
-    const want = tmpV.set(t.x - Math.sin(player.yaw) * 6, t.y + 2.6, t.z - Math.cos(player.yaw) * 6);
-    camPos.lerp(want, 1 - Math.exp(-dt * 3)); camera.position.copy(camPos); camera.lookAt(t.x, t.y + 0.4, t.z);
+    const t = tumble.bike.o.position.clone().lerp(tumble.rider.o.position, 0.5);
+    const want = tmpV.set(t.x - Math.sin(player.yaw) * 5.5 + Math.cos(player.yaw) * 2.5, Math.max(t.y, groundH(t.x, t.z)) + 2.2, t.z - Math.cos(player.yaw) * 5.5 - Math.sin(player.yaw) * 2.5);
+    if (camPos.distanceTo(want) > 25) camPos.copy(want); else camPos.lerp(want, 1 - Math.exp(-dt * 3));
+    camera.position.copy(camPos); camera.lookAt(t.x, t.y + 0.4, t.z);
     return;
   }
   if (crashCam) {
@@ -705,4 +712,4 @@ function loadRealModels() {
   loadRealModels();
   loop();
 })();
-window.__game = { player, scene, camera, renderer, get traffic() { return traffic; }, get wildlife() { return wildlife; }, get bike() { return bike; }, setTime: (t) => (timeOfDay = t), setCam: (m) => (camMode = m), keys, step: (dt) => frame(dt), startCapture: () => { window.__capture = true; } };
+window.__game = { player, scene, camera, renderer, get traffic() { return traffic; }, get wildlife() { return wildlife; }, get bike() { return bike; }, setTime: (t) => (timeOfDay = t), setCam: (m) => (camMode = m), keys, step: (dt) => frame(dt), place: (x, z, yaw) => placePlayer(x, z, yaw), startCapture: () => { window.__capture = true; } };
