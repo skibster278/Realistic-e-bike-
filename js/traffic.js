@@ -121,11 +121,12 @@ export class Traffic {
     for (const s2 of roads) {
       if (s2.kind !== 'city' || Math.abs(s2.ax) > 300 || Math.abs(s2.bx) > 300 || Math.abs(s2.az) > 300 || Math.abs(s2.bz) > 300) continue;
       for (const dir of [1, -1]) for (let t = 20; t < s2.len - 20; t += 7.2) {
-        if (rand() > 0.42) continue;
+        if (rand() > 0.3) continue;
         const tt = dir > 0 ? t : s2.len - t, fx = s2.dx * dir, fz = s2.dz * dir;
         const x = s2.ax + s2.dx * tt - fz * 7.0, z = s2.az + s2.dz * tt + fx * 7.0, yaw = Math.atan2(fx, fz);
         const car = makeCar(rand() < 0.4 && realCars.length ? 'real' : pick(['sedan', 'suv', 'hatch', 'pickup', 'van']), pick(paintMats));
         car.position.set(x, 0, z); car.rotation.y = yaw; scene.add(car);
+        car.traverse((o) => { if (o.isMesh) o.castShadow = false; });
         this.parked.push({ mesh: car, pos: car.position, yaw, speed: 0, L: car.userData.L, W: car.userData.W });
       }
     }
@@ -179,8 +180,8 @@ export class Traffic {
     this.lodT = (this.lodT || 0) - dt;
     if (this.lodT <= 0 && player) {
       this.lodT = 0.4;
-      for (const c of this.parked) { const d2 = (c.pos.x - player.pos.x) ** 2 + (c.pos.z - player.pos.z) ** 2; c.mesh.visible = d2 < 170 * 170; const u = c.mesh.userData; if (u.real) { u.real.visible = d2 < 90 * 90; u.proxy.visible = !u.real.visible; } }
-      for (const c of all) { const u = c.mesh.userData; if (!u.real) continue; const near = (c.pos.x - player.pos.x) ** 2 + (c.pos.z - player.pos.z) ** 2 < 110 * 110; u.real.visible = near; u.proxy.visible = !near; }
+      for (const c of this.parked) { const d2 = (c.pos.x - player.pos.x) ** 2 + (c.pos.z - player.pos.z) ** 2; c.mesh.visible = d2 < 120 * 120; const u = c.mesh.userData; if (u.real) { u.real.visible = d2 < 45 * 45; u.proxy.visible = !u.real.visible; } }
+      for (const c of all) { const u = c.mesh.userData; if (!u.real) continue; const near = (c.pos.x - player.pos.x) ** 2 + (c.pos.z - player.pos.z) ** 2 < 70 * 70; u.real.visible = near; u.proxy.visible = !near; }
     }
     for (const c of all) {
       // target speed
