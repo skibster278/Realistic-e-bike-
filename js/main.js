@@ -127,7 +127,7 @@ const GRADE = {
     void main(){
       vec3 c = texture2D(tDiffuse, vUv).rgb;
       if (blur > 0.001) { // radial speed blur, strongest at the screen edges
-        vec2 dir = (vec2(0.5, 0.52) - vUv); float k = blur * smoothstep(0.15, 0.7, length(dir) * 1.4);
+        vec2 dir = (vec2(0.5, 0.52) - vUv); float k = blur * smoothstep(0.35, 0.75, length(dir) * 1.4);
         vec3 acc = c; for (int i = 1; i < 7; i++) acc += texture2D(tDiffuse, vUv + dir * float(i) * 0.012 * k).rgb;
         c = acc / 7.0;
       }
@@ -498,7 +498,7 @@ function loop() {
   updateSky(dt);
   updateAudio(player, inp);
   if (gradePass) { const gl2 = smoothstep(0.45, 0.05, sunDir.y) * smoothstep(-0.08, 0.04, sunDir.y); gradePass.uniforms.warm.value = 0.75 + gl2 * 0.9; gradePass.uniforms.sat.value = 1.08 + gl2 * 0.08; }
-  if (gradePass) { const v = Math.abs(player.speed); gradePass.uniforms.blur.value += ((player.alive ? smoothstep(18, 42, v) : 0) * 0.7 - gradePass.uniforms.blur.value) * Math.min(1, dt * 4); }
+  if (gradePass) { const v = Math.abs(player.speed); gradePass.uniforms.blur.value += ((player.alive ? smoothstep(26, 45, v) : 0) * 0.4 - gradePass.uniforms.blur.value) * Math.min(1, dt * 4); }
   // HUD
   if (started) {
     const kmh = Math.round(Math.abs(player.speed) * 3.6);

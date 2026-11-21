@@ -40,6 +40,11 @@ for (const z of [820, -820]) for (let i = 0; i < RX.length - 1; i++) seg(RX[i], 
 seg(-1150, -820, -1150, 0, 'hwy'); seg(-1150, 0, -1150, 820, 'hwy');
 seg(1100, -820, 1100, 0, 'hwy'); seg(1100, 0, 1100, 820, 'hwy');
 
+export function crossHalf(seg, end) {
+  const n = nodes.get(nkey(end === 0 ? seg.ax : seg.bx, end === 0 ? seg.az : seg.bz));
+  let h = 0; if (n) for (const l of n.links) if (l.seg !== seg) h = Math.max(h, l.seg.w / 2);
+  return h;
+}
 export function nearestRoad(x, z) {
   let best = null, bd = 1e9, bt = 0;
   for (const s of roads) {
@@ -172,6 +177,16 @@ function addCol(c) {
 }
 export function addCircle(x, z, r, h = 10) { addCol({ t: 0, x, z, r, h, minX: x - r, maxX: x + r, minZ: z - r, maxZ: z + r }); }
 export function addBox(minX, maxX, minZ, maxZ, h = 50) { addCol({ t: 1, minX, maxX, minZ, maxZ, h }); }
+// debug: list static circular colliders (poles, trees, props) that intrude on a carriageway
+export function auditOverlaps() {
+  const seen = new Set(), bad = [];
+  for (const arr of grid.values()) for (const c of arr) {
+    if (seen.has(c) || c.t !== 0) continue; seen.add(c);
+    const r = nearestRoad(c.x, c.z);
+    if (r.d < r.seg.w / 2 + c.r - 0.05) bad.push({ x: +c.x.toFixed(1), z: +c.z.toFixed(1), r: c.r, h: c.h, kind: r.seg.kind, d: +r.d.toFixed(2) });
+  }
+  return bad;
+}
 export function queryCols(x, z) {
   const k = Math.floor(x / CELL) * 100000 + Math.floor(z / CELL);
   return grid.get(k) || [];
@@ -216,7 +231,7 @@ export function buildWorld(scene, assets) {
   const bump = TX.asphaltBump();
   const roadMats = {};
   for (const k of Object.keys(WID)) {
-    const nor = TX.imgTex('asphalt_02_nor', WID[k] / 3.5, 12 / 3.5, false), rough = TX.imgTex('asphalt_02_rough', WID[k] / 3.5, 12 / 3.5, false);
+    const nor = TX.imgTex('asphalt_pit_lane_nor', WID[k] / 3.5, 12 / 3.5, false), rough = TX.imgTex('asphalt_pit_lane_rough', WID[k] / 3.5, 12 / 3.5, false);
     roadMats[k] = new THREE.MeshStandardMaterial({ map: TX.roadTex(k, WID[k]), roughness: 1, roughnessMap: rough, metalness: 0, normalMap: nor, normalScale: new THREE.Vector2(0.8, 0.8) });
   }
   const byKind = {};
@@ -237,11 +252,11 @@ export function buildWorld(scene, assets) {
     const g = new THREE.PlaneGeometry(w, w, 4, 4).rotateX(-Math.PI / 2); g.translate(n.x, 0.09, n.z);
     // world-space UVs so the photo asphalt matches the surrounding road at the same 3.5 m scale
     const pp = g.attributes.position, uv = g.attributes.uv;
-    for (let i = 0; i < pp.count; i++) uv.setXY(i, pp.getX(i) / 3.5, pp.getZ(i) / 3.5);
+    for (let i = 0; i < pp.count; i++) uv.setXY(i, pp.getX(i) / 14, pp.getZ(i) / 14);
     ip.push(g);
   }
-  const ipMap = TX.imgTex('asphalt_02_diff') || pa;
-  addMesh(merge(ip), new THREE.MeshStandardMaterial({ map: ipMap, color: 0xaaaab0, roughness: 1, roughnessMap: TX.imgTex('asphalt_02_rough', 1, 1, false), normalMap: TX.imgTex('asphalt_02_nor', 1, 1, false), normalScale: new THREE.Vector2(0.8, 0.8) }), false, true);
+  // same normal/roughness scale as the roads (3.5 m tiles = 4 per 14 m repeat)
+  addMesh(merge(ip), new THREE.MeshStandardMaterial({ map: pa, roughness: 1, roughnessMap: TX.imgTex('asphalt_pit_lane_rough', 4, 4, false), normalMap: TX.imgTex('asphalt_pit_lane_nor', 4, 4, false), normalScale: new THREE.Vector2(0.8, 0.8) }), false, true);
   // traffic signals (pole + mast arm + 3-lens head facing each approach)
   {
     const q = new THREE.Quaternion(), m4 = new THREE.Matrix4(), up = V(0, 1, 0);
@@ -282,24 +297,25 @@ export function buildWorld(scene, assets) {
     if (n.links.length < 3) continue;
     const city = n.links.some((l) => l.seg.kind === 'city') && Math.abs(n.x) <= 300 && Math.abs(n.z) <= 300;
     if (!city) continue;
-    const half = 8;
     for (const l of n.links) {
       const s2 = l.seg, sgn = l.end === 0 ? 1 : -1, dx = s2.dx * sgn, dz = s2.dz * sgn; // pointing away from node
-      const yaw = Math.atan2(dx, dz);
-      for (let k = -7; k <= 7; k++) {
+      const yaw = Math.atan2(dx, dz), half = crossHalf(s2, l.end), hw = s2.w / 2;
+      // stripes span this road's own carriageway only (never onto the kerb)
+      const nS = Math.floor((hw - 0.9) / 1.0);
+      for (let k = -nS; k <= nS; k++) {
         const o = k * 1.0, px = n.x + dx * (half + 2.2) - dz * o, pz = n.z + dz * (half + 2.2) + dx * o;
         zebra.push(new THREE.PlaneGeometry(0.55, 3.2).rotateX(-Math.PI / 2).rotateY(yaw).translate(px, 0.1, pz));
       }
-      // stop line on the approaching (right-hand) half
-      const sx = n.x + dx * (half + 4.4) + dz * 3.9, sz = n.z + dz * (half + 4.4) - dx * 3.9;
-      zebra.push(new THREE.PlaneGeometry(7.4, 0.4).rotateX(-Math.PI / 2).rotateY(yaw).translate(sx, 0.1, sz));
+      // stop line across the approaching (right-hand) half
+      const sl = hw - 0.7, sx = n.x + dx * (half + 4.4) + dz * (sl / 2 + 0.25), sz = n.z + dz * (half + 4.4) - dx * (sl / 2 + 0.25);
+      zebra.push(new THREE.PlaneGeometry(sl, 0.4).rotateX(-Math.PI / 2).rotateY(yaw).translate(sx, 0.1, sz));
     }
   }
   for (const s2 of roads) if (s2.kind !== 'forest') for (let t = 25; t < s2.len - 20; t += 45 + rand() * 40) {
     const o = (rand() - 0.5) * s2.w * 0.5, x = s2.ax + s2.dx * t - s2.dz * o, z = s2.az + s2.dz * t + s2.dx * o;
     manholes.push(new THREE.CircleGeometry(0.36, 20).rotateX(-Math.PI / 2).translate(x, 0.1, z));
   }
-  const paint = new THREE.MeshStandardMaterial({ color: 0xe8e6e0, roughness: 0.75, map: TX.imgTex('asphalt_02_rough', 0.3, 0.3, false) });
+  const paint = new THREE.MeshStandardMaterial({ color: 0xe8e6e0, roughness: 0.75, map: TX.imgTex('asphalt_pit_lane_rough', 0.3, 0.3, false) });
   addMesh(merge(zebra), paint, false, true);
   addMesh(merge(manholes), new THREE.MeshStandardMaterial({ color: 0x2a2826, roughness: 0.5, metalness: 0.8 }), false, true);
 
@@ -431,9 +447,10 @@ export function buildWorld(scene, assets) {
   const curbs = [];
   for (const s2 of roads) {
     if (s2.kind !== 'city' && s2.kind !== 'hood') continue;
-    const yaw = Math.atan2(s2.dx, s2.dz), cx = (s2.ax + s2.bx) / 2, cz = (s2.az + s2.bz) / 2;
-    const L2 = s2.len - (s2.kind === 'city' ? 16 : 10);
+    // trim each end exactly to the edge of the road it meets (plus the kerb itself)
+    const t0 = crossHalf(s2, 0) + 0.3, t1 = s2.len - crossHalf(s2, 1) - 0.3, L2 = t1 - t0;
     if (L2 <= 0) continue;
+    const yaw = Math.atan2(s2.dx, s2.dz), tm = (t0 + t1) / 2, cx = s2.ax + s2.dx * tm, cz = s2.az + s2.dz * tm;
     for (const sd of [-1, 1]) {
       const ox = -s2.dz * sd * (s2.w / 2 + 0.15), oz = s2.dx * sd * (s2.w / 2 + 0.15);
       curbs.push(boxGeo(0.3, 0.16, L2, 0, 0.08, 0).rotateY(yaw).translate(cx + ox, 0, cz + oz));
@@ -488,9 +505,9 @@ export function buildWorld(scene, assets) {
         for (const o of [-pw / 2 + 0.15, pw / 2 - 0.15]) houseBits.push(colorize(boxGeo(0.15, 2.7, 0.15, px + o, 1.35, pz + fz * 1.0), 0xf0f0ea));
         houseBits.push(colorize(boxGeo(pw, 0.25, 2.4, px, 0.12, pz), 0xb0aaa0));
       }
-      const mz = streetZ - fz * 5.6; houseBits.push(colorize(boxGeo(0.08, 1.05, 0.08, dx + 2.6, 0.52, mz), 0x3a3a3a), colorize(boxGeo(0.26, 0.24, 0.45, dx + 2.6, 1.15, mz), pick([0x2a2a2a, 0x24406a, 0xe8e8e8, 0x7a1a1a])));
+      const mz = streetZ - fz * 6.0; houseBits.push(colorize(boxGeo(0.08, 1.05, 0.08, dx + 2.6, 0.52, mz), 0x3a3a3a), colorize(boxGeo(0.26, 0.24, 0.45, dx + 2.6, 1.15, mz), pick([0x2a2a2a, 0x24406a, 0xe8e8e8, 0x7a1a1a])));
       if (rand() < 0.6) {
-        const fzL = streetZ - fz * 5.2, xL0 = lx - 22, xL1 = dx - 2.2, xR0 = dx + 2.2, xR1 = lx + 22;
+        const fzL = streetZ - fz * 7.3, xL0 = lx - 22, xL1 = dx - 2.2, xR0 = dx + 2.2, xR1 = lx + 22;
         for (const [a0, a1] of [[xL0, xL1], [xR0, xR1]]) if (a1 - a0 > 1) fences.push(new THREE.PlaneGeometry(a1 - a0, 1.0).translate((a0 + a1) / 2, 0.5, fzL).scale(1, 1, 1));
         for (const [a0, a1] of [[xL0, xL1], [xR0, xR1]]) { const uvg = fences[fences.length - 1]; }
       }
