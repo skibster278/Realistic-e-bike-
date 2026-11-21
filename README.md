@@ -24,7 +24,7 @@ Open `index.html` through any static server (GitHub Pages, or `python3 -m http.s
 | B | Toggle bloom |
 | Esc | Menu |
 
-**Touch (iPad/phone):** an analog thumb-stick on the left steers (tap **TILT** to steer by tilting the device instead). On the right are the **GAS** and **BRAKE** pedals plus **WHEELIE** and **LEAN** buttons. The small buttons on the right edge switch camera, look back, toggle tilt and respawn. Everything is multi-touch, so you can steer, hold gas and wheelie at the same time.
+**Touch (iPad/phone):** an analog thumb-stick on the left steers (tap **TILT** to steer by tilting the device instead). On the right are the **GAS** and **BRAKE** pedals plus **WHEELIE** and **LEAN** buttons. The small buttons on the right edge switch camera, look back, toggle tilt and respawn. Everything is multi-touch, so you can steer, hold gas and wheelie at the same time. The on-screen controls only appear while you're playing by touch: pressing any key on a keyboard hides them, and touching the screen again (after a few seconds without typing) brings them back.
 
 ## What's in it
 

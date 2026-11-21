@@ -166,13 +166,19 @@ addEventListener('keydown', (e) => {
 });
 addEventListener('keyup', (e) => { keys[e.code] = false; });
 // ------------------------------------------------------------ touch controls (multi-touch, analog stick, tilt option)
-const touch = { steer: 0, gas: false, brake: false, lift: false, dive: false, look: false, tilt: false, tiltSteer: 0, used: false };
-function showTouch() {
-  if (touch.used) return; touch.used = true;
-  document.body.classList.add('touch');
-  if (started) $('touch').classList.remove('hide');
+const touch = { steer: 0, gas: false, brake: false, lift: false, dive: false, look: false, tilt: false, tiltSteer: 0 };
+// on-screen controls only while the player is actually using touch: any physical key press hides them,
+// touching the screen again (after a few seconds without typing) brings them back
+let inputMode = IS_TOUCH ? 'touch' : 'keys', lastKeyT = -1e9;
+function applyInputMode() {
+  const t = inputMode === 'touch';
+  document.body.classList.toggle('touch', t);
+  $('touch').classList.toggle('hide', !(t && started));
+  if (!t) { touch.steer = 0; touch.gas = touch.brake = touch.lift = touch.dive = touch.look = false; document.querySelectorAll('#touch .on').forEach((el) => el.classList.remove('on')); $('knob').style.transform = ''; }
 }
-addEventListener('touchstart', showTouch, { passive: true });
+function showTouch() { if (inputMode !== 'touch') { inputMode = 'touch'; applyInputMode(); } }
+addEventListener('touchstart', () => { if (performance.now() - lastKeyT > 4000) showTouch(); }, { passive: true });
+addEventListener('keydown', () => { lastKeyT = performance.now(); if (inputMode !== 'keys') { inputMode = 'keys'; applyInputMode(); } });
 {
   const stick = $('stick'), knob = $('knob');
   let sid = null;
@@ -685,7 +691,7 @@ function buildMenu() {
     if (!started || spawnChanged()) spawnAt(spawnName);
     lastSpawn = spawnName; started = true;
     $('hud').classList.remove('hide');
-    if (IS_TOUCH || touch.used) { showTouch(); $('touch').classList.remove('hide'); }
+    applyInputMode();
   };
 }
 let lastSpawn = null; const spawnChanged = () => lastSpawn !== spawnName;
