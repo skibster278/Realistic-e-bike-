@@ -785,7 +785,7 @@ export function buildWorld(scene, assets) {
     mg.setAttribute('color', new THREE.BufferAttribute(cc, 3));
   }
   const mtn = addMesh(mg, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, fog: false }), false, false);
-  mountainMats.push(mtn.material);
+  mountainMats.push(mtn.material); mtn.castShadow = false; mountainMats.mesh = mtn; mtn.frustumCulled = false;
 
   return group;
 }

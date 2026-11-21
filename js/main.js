@@ -54,7 +54,7 @@ renderer.setPixelRatio(pixelRatio);
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; // punchier than AgX: deeper blacks, richer colour
 renderer.toneMappingExposure = 0.85;
 
 const scene = new THREE.Scene();
@@ -80,15 +80,24 @@ function flareTex(kind) {
   const g = x.createRadialGradient(128, 128, 0, 128, 128, 128);
   if (kind === 0) { g.addColorStop(0, 'rgba(255,255,245,1)'); g.addColorStop(0.08, 'rgba(255,240,210,0.9)'); g.addColorStop(0.3, 'rgba(255,200,140,0.18)'); g.addColorStop(1, 'rgba(255,180,120,0)'); }
   else if (kind === 1) { g.addColorStop(0, 'rgba(160,200,255,0)'); g.addColorStop(0.7, 'rgba(160,200,255,0.05)'); g.addColorStop(0.85, 'rgba(255,220,160,0.07)'); g.addColorStop(1, 'rgba(255,200,160,0)'); }
+  else if (kind === 3) { // thin horizontal streak
+    x.clearRect(0, 0, 256, 256); const h = x.createLinearGradient(0, 0, 256, 0);
+    h.addColorStop(0, 'rgba(255,200,140,0)'); h.addColorStop(0.5, 'rgba(255,235,210,0.9)'); h.addColorStop(1, 'rgba(255,200,140,0)');
+    x.fillStyle = h; for (let i = 0; i < 6; i++) { x.globalAlpha = 0.25 - i * 0.035; x.fillRect(0, 128 - (i + 1) * 1.6, 256, (i + 1) * 3.2); }
+    x.globalAlpha = 1; const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+  }
   else { g.addColorStop(0, 'rgba(200,230,255,0.14)'); g.addColorStop(1, 'rgba(200,230,255,0)'); }
   x.fillStyle = g; x.fillRect(0, 0, 256, 256);
-  if (kind === 0) { x.globalCompositeOperation = 'lighter'; x.strokeStyle = 'rgba(255,240,220,0.09)'; x.lineWidth = 1.5; for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI; x.beginPath(); x.moveTo(128 - Math.cos(a) * 120, 128 - Math.sin(a) * 120); x.lineTo(128 + Math.cos(a) * 120, 128 + Math.sin(a) * 120); x.stroke(); } }
+  if (kind === 0) { x.globalCompositeOperation = 'lighter'; x.strokeStyle = 'rgba(255,240,220,0.2)'; x.lineWidth = 1.6; for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI; x.beginPath(); x.moveTo(128 - Math.cos(a) * 120, 128 - Math.sin(a) * 120); x.lineTo(128 + Math.cos(a) * 120, 128 + Math.sin(a) * 120); x.stroke(); } }
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 const flare = new Lensflare();
 const fT = [flareTex(0), flareTex(1), flareTex(2)];
-flare.addElement(new LensflareElement(fT[0], 260, 0, new THREE.Color(1, 0.95, 0.85)));
-flare.addElement(new LensflareElement(fT[2], 50, 0.55));
+flare.addElement(new LensflareElement(fT[0], 380, 0, new THREE.Color(1, 0.93, 0.8)));
+flare.addElement(new LensflareElement(flareTex(3), 1100, 0, new THREE.Color(1, 0.78, 0.55))); // anamorphic horizontal streak
+flare.addElement(new LensflareElement(fT[1], 90, 0.38, new THREE.Color(0.9, 0.95, 1)));
+flare.addElement(new LensflareElement(fT[2], 60, 0.62));
+flare.addElement(new LensflareElement(fT[1], 120, 0.9, new THREE.Color(1, 0.85, 0.7)));
 const flareHolder = new THREE.Object3D(); flareHolder.add(flare); scene.add(flareHolder);
 
 // lights
@@ -122,11 +131,27 @@ function buildComposer() {
   const prev = bloom ? bloom.strength : 0.35;
   bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), prev, 0.5, 0.9);
   composer.addPass(bloom);
+  rayPass = new ShaderPass(RAYS); composer.addPass(rayPass);
   composer.addPass(new OutputPass());
   gradePass = new ShaderPass(GRADE); composer.addPass(gradePass);
   if (Q.ao) { const fx = new ShaderPass(FXAAShader); fx.material.uniforms.resolution.value.set(1 / w, 1 / h); composer.addPass(fx); }
 }
-let aoPass = null, gradePass = null;
+let aoPass = null, gradePass = null, rayPass = null;
+// screen-space volumetric light shafts: march from each pixel toward the sun, accumulating bright (sky) samples
+const RAYS = {
+  uniforms: { tDiffuse: { value: null }, sunUv: { value: new THREE.Vector2(0.5, 0.7) }, strength: { value: 0 }, thresh: { value: 0.95 }, col: { value: new THREE.Color(1, 0.85, 0.65) } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 sunUv; uniform float strength, thresh; uniform vec3 col; varying vec2 vUv;
+    void main(){
+      vec4 base = texture2D(tDiffuse, vUv);
+      if (strength < 0.001) { gl_FragColor = base; return; }
+      vec2 d = vUv - sunUv; vec2 stepv = d * (0.85 / 28.0); vec2 uv = vUv; float acc = 0.0, decay = 1.0;
+      for (int i = 0; i < 28; i++) { uv -= stepv; vec3 c = texture2D(tDiffuse, clamp(uv, 0.001, 0.999)).rgb; acc += max(0.0, dot(c, vec3(0.3, 0.59, 0.11)) - thresh) * decay; decay *= 0.955; }
+      acc /= 28.0;
+      float fall = exp(-length(d * vec2(1.6, 1.0)) * 1.8);
+      gl_FragColor = vec4(base.rgb + col * acc * strength * fall, base.a);
+    }`
+};
 // keep the *horizontal* view wide in portrait (a phone held upright would otherwise see a narrow slit)
 function setFov(vLandscape) {
   const a = camera.aspect, ref = 16 / 9;
@@ -151,7 +176,7 @@ const GRADE = {
         vec3 acc = c; for (int i = 1; i < 7; i++) acc += texture2D(tDiffuse, vUv + dir * float(i) * 0.012 * k).rgb;
         c = acc / 7.0;
       }
-      c = mix(c, c * c * (3.0 - 2.0 * c), 0.28);
+      c = mix(c, c * c * (3.0 - 2.0 * c), 0.55); // filmic S-curve: deeper shadows, brighter highlights
       float l = dot(c, vec3(0.299, 0.587, 0.114));
       c = mix(vec3(l), c, sat);
       c += warm * vec3(0.025, 0.01, -0.02) * smoothstep(0.4, 1.0, l) + warm * vec3(-0.01, 0.0, 0.02) * (1.0 - smoothstep(0.0, 0.35, l));
@@ -442,7 +467,7 @@ function setEnvIntensity(v) {
   for (const m of envMats) m.envMapIntensity = m.userData.envBase * v;
 }
 // ------------------------------------------------------------ day / night
-const sunDir = new THREE.Vector3(); let envTimer = 0, lampTimer = 0, lastNight = -1;
+const sunDir = new THREE.Vector3(), _sv = new THREE.Vector3(), _sf = new THREE.Vector3(); let envTimer = 0, lampTimer = 0, lastNight = -1;
 function updateSky(dt) {
   // daylight only: the clock runs from late morning to golden hour and back again (no night).
   // It lingers in the golden light; noon passes quicker. Sun azimuth is fixed to where the sky photos have their sun.
@@ -465,18 +490,19 @@ function updateSky(dt) {
   const lightDir = elev > -0.05 ? sunDir : moonDir;
   sun.position.copy(player.pos).addScaledVector(lightDir, 400);
   sun.target.position.copy(player.pos);
-  const sunCol = new THREE.Color().setRGB(1, lerp(1, 0.62, golden), lerp(0.96, 0.38, golden));
-  sun.color.copy(elev > -0.05 ? sunCol : new THREE.Color(0x8fa8ff));
-  sun.intensity = elev > -0.05 ? 4.2 * smoothstep(-0.05, 0.15, elev) : 0.25 * smoothstep(0.05, 0.3, moonDir.y);
-  hemi.intensity = lerp(0.15, 0.6, day) * (1 + golden * 0.7);
-  hemi.color.setRGB(lerp(0.35, 0.74, day), lerp(0.42, 0.84, day), lerp(0.7, 1, day)).lerp(new THREE.Color(1.0, 0.78, 0.6), golden * 0.45);
-  hemi.groundColor.setRGB(0.29, 0.25, 0.19).lerp(new THREE.Color(0.45, 0.3, 0.2), golden * 0.6);
+  const sunCol = new THREE.Color().setRGB(1, lerp(0.96, 0.7, golden), lerp(0.88, 0.42, golden));
+  sun.color.copy(sunCol);
+  sun.intensity = lerp(6.0, 5.2, golden); // strong key light: crisp, high-contrast shadows
+  // shadows are lit by the blue sky (cool fill) and warm ground bounce, like late-afternoon photography
+  hemi.color.setRGB(0.5, 0.64, 1.0).lerp(new THREE.Color(0.55, 0.62, 0.95), golden);
+  hemi.groundColor.setRGB(0.36, 0.3, 0.22).lerp(new THREE.Color(0.55, 0.36, 0.22), golden);
+  hemi.intensity = lerp(0.7, 0.85, golden);
   const fogDay = new THREE.Color(0xc6d4e2).lerp(new THREE.Color(0xe6cfb2), golden * 0.85); // matches each sky photo's horizon haze
   scene.fog.color.copy(fogDay).lerp(new THREE.Color(0x0a0f1a), night);
-  scene.fog.near = lerp(140, 220, 1 - golden); scene.fog.far = Math.min(Q.farClip * 0.97, lerp(2400, 3300, 1 - golden));
-  renderer.toneMappingExposure = lerp(1.15, 0.72, day);
+  scene.fog.near = lerp(320, 260, golden); scene.fog.far = Math.min(Q.farClip * 0.97, lerp(3400, 2600, golden));
+  renderer.toneMappingExposure = lerp(0.92, 0.86, golden);
   starM.opacity = smoothstep(0.0, -0.2, elev);
-  flareHolder.position.copy(camera.position).addScaledVector(sunDir, 4000); flare.visible = elev > -0.02;
+  flareHolder.position.copy(camera.position).addScaledVector(sunDir, camera.far * 0.8); flare.visible = true;
   moon.position.copy(camera.position).addScaledVector(moonDir, 4300); moon.material.opacity = smoothstep(-0.05, 0.1, moonDir.y);
   stars.position.copy(camera.position);
   // emissives
@@ -493,6 +519,7 @@ function updateSky(dt) {
     near.forEach(([, l], i) => lampLights[i].position.set(l.x, l.y, l.z));
   }
   for (const l of lampLights) l.intensity = 75 * nightAmt;
+  if (mountainMats.mesh) { const m = mountainMats.mesh, k = Math.min(1, camera.far * 0.9 / 3300); m.scale.set(k, k, k); m.position.set(camera.position.x, 0, camera.position.z); } // backdrop ring follows the camera, always inside the far plane
   for (const mm of mountainMats) mm.color.setScalar(lerp(0.08, 1, day)).lerp(new THREE.Color(1, 0.75, 0.6), golden * 0.35);
   // impostor lighting (matches three's physically based lambert: /PI)
   IMP_UNIFORMS.sunDir.value.copy(lightDir);
@@ -505,7 +532,7 @@ function updateSky(dt) {
     const gmix = smoothstep(0.5, 0.17, elev); // 0 = midday sky, 1 = golden-hour sky
     if (skyDome) { skyDome.position.copy(camera.position); skyDome.material.uniforms.mixB.value = gmix; skyDome.material.uniforms.gain.value = lerp(1, 0.5, gmix); skyDome.material.uniforms.warm.value.setRGB(1, lerp(1, 0.9, gmix), lerp(1, 0.76, gmix)); }
     const wantGold = gmix > 0.5; if (wantGold !== envIsGold && envGold) { envIsGold = wantGold; scene.environment = wantGold ? envGold : envDay; }
-    scene.environmentIntensity = lerp(0.5, 0.36, gmix);
+    scene.environmentIntensity = lerp(0.32, 0.26, gmix); // reflections; fill comes from the coloured hemisphere
     setEnvIntensity(scene.environmentIntensity);
     scene.backgroundRotation && (scene.backgroundRotation.y = 0);
     envTimer = 1e9;
@@ -688,7 +715,14 @@ function frame(rawDt) {
   updateCamera(dt, inp);
   updateSky(dt);
   updateAudio(player, inp);
-  if (gradePass) { const gl2 = smoothstep(0.45, 0.05, sunDir.y) * smoothstep(-0.08, 0.04, sunDir.y); gradePass.uniforms.warm.value = 0.75 + gl2 * 0.9; gradePass.uniforms.sat.value = 1.08 + gl2 * 0.08; }
+  { // sun on screen: drives god rays and the soft sun glow overlay
+    _sv.copy(camera.position).addScaledVector(sunDir, 1000).project(camera);
+    const fwd = camera.getWorldDirection(_sf), facing = smoothstep(0.15, 0.75, fwd.dot(sunDir)) * (_sv.z < 1 ? 1 : 0);
+    const gl = smoothstep(0.55, 0.12, sunDir.y);
+    if (rayPass) { rayPass.uniforms.sunUv.value.set(_sv.x * 0.5 + 0.5, _sv.y * 0.5 + 0.5); rayPass.uniforms.strength.value = facing * lerp(0.6, 1.6, gl); rayPass.uniforms.col.value.setRGB(1, lerp(0.92, 0.78, gl), lerp(0.8, 0.55, gl)); }
+    const sg = $('sunglow'); if (sg) { sg.style.opacity = (facing * lerp(0.25, 0.6, gl) * (rayPass ? 0.6 : 1)).toFixed(3); sg.style.setProperty('--sx', ((_sv.x * 0.5 + 0.5) * 100).toFixed(1) + '%'); sg.style.setProperty('--sy', ((0.5 - _sv.y * 0.5) * 100).toFixed(1) + '%'); }
+  }
+  if (gradePass) { const gl2 = smoothstep(0.45, 0.05, sunDir.y) * smoothstep(-0.08, 0.04, sunDir.y); gradePass.uniforms.warm.value = 0.9 + gl2 * 1.0; gradePass.uniforms.sat.value = 1.3 + gl2 * 0.05; }
   if (gradePass) { const v = Math.abs(player.speed); gradePass.uniforms.blur.value += ((player.alive ? smoothstep(26, 45, v) : 0) * 0.4 - gradePass.uniforms.blur.value) * Math.min(1, dt * 4); }
   // HUD
   if (started) {
