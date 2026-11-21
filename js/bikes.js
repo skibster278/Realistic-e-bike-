@@ -232,7 +232,7 @@ export function buildBike(spec) {
   const steer = new THREE.Group(); steerAxis.add(steer);
   const axle = V(0, rf, wb).sub(headTop).applyAxisAngle(V(1, 0, 0), rake);
   const forkLen = -axle.y, offZ = axle.z;
-  front.position.copy(axle); steer.add(front);
+  front.position.copy(axle); steer.add(front); out.frontRest = axle.clone();
   const fx = moto ? 0.095 : 0.06;
   if (moto) {
     for (const sx of [-1, 1]) {
@@ -470,7 +470,20 @@ function buildRider(bike, spec, pegL, pegR, seat) {
   bike.root.updateWorldMatrix(true, true);
   bike.headLocal = body.worldToLocal(bones.Head.getWorldPosition(new THREE.Vector3())).add(V(0, 0.09, 0.1));
   res.setFP = (fp) => { if (visor) visor.visible = !fp; };
-  res.update = doIK;
+  // dynamic posture on top of the seated base pose (no accumulation)
+  const dyn = ['Spine1', 'Spine2', 'Neck', 'Head'].filter((n) => bones[n]).map((n) => [bones[n], bones[n].quaternion.clone()]);
+  const qx = new THREE.Quaternion(), qz = new THREE.Quaternion(), X = V(1, 0, 0), Z = V(0, 0, 1);
+  res.update = (st) => {
+    if (st) {
+      const fwd = Math.max(-0.25, Math.min(0.35, st.accel * 0.03)) + (st.air ? 0.25 : 0) - st.pitch * 0.25; // tuck forward under power / in the air
+      for (const [b, q0] of dyn) {
+        const isHead = b === bones.Head || b === bones.Neck;
+        qx.setFromAxisAngle(X, isHead ? -fwd * 0.5 : fwd * 0.5); qz.setFromAxisAngle(Z, isHead ? -st.lean * 0.35 : st.lean * 0.08);
+        b.quaternion.copy(q0).multiply(qx).multiply(qz);
+      }
+    }
+    doIK();
+  };
   res.bones = bones;
   return res;
 }

@@ -15,6 +15,7 @@ import { preloadImages } from './textures.js';
 import { loadImpostor, IMP_UNIFORMS } from './impostor.js';
 import { makeGrass, makeGroundData, makeBlades } from './grass.js';
 import { Dust } from './dust.js';
+import { TyreMarks } from './marks.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { buildWorld, lamps, nightMats, biomeAt, makeMapCanvas, groundH, FOREST, updateChunks, mountainMats, signal, signalMats } from './world.js';
@@ -221,7 +222,7 @@ function crashSound() {
 }
 
 // ------------------------------------------------------------ game state
-let grass = null; const dust = new Dust(scene);
+let grass = null; const dust = new Dust(scene); const marks = new TyreMarks(scene);
 let started = false, camMode = 0, timeOfDay = 17.45, bigMap = false, lockGolden = false;
 const DAY_MINUTES = 14; // real minutes for a full 24h cycle
 const player = new Player();
@@ -254,7 +255,32 @@ function onCrash(reason) {
   deadTimer = 3.2; crashSound();
   $('crash').textContent = reason; $('crash').classList.add('show');
   crashCam = { pos: camera.position.clone(), vel: new THREE.Vector3(Math.sin(player.yaw) * player.speed * 0.6, 3 + Math.abs(player.speed) * 0.1, Math.cos(player.yaw) * player.speed * 0.6), rot: new THREE.Vector3((Math.random() - 0.5) * 6, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 8) };
-  setTimeout(() => $('fade').classList.add('black'), 450);
+  // throw bike and rider: rigid-body tumble with ground bounces and sliding friction
+  const fx = Math.sin(player.yaw), fz = Math.cos(player.yaw), v = Math.max(4, Math.abs(player.speed));
+  const r = bike.root; r.updateMatrixWorld(true);
+  const riderObj = bike.rider.group; const wp = new THREE.Vector3(), wq = new THREE.Quaternion();
+  riderObj.getWorldPosition(wp); riderObj.getWorldQuaternion(wq); scene.attach(riderObj);
+  tumble = {
+    bike: { o: r, v: new THREE.Vector3(fx * v * 0.55, 1.5 + v * 0.08, fz * v * 0.55), w: new THREE.Vector3((Math.random() - 0.5) * 5 + v * 0.25, (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 7), lift: 0.35 },
+    rider: { o: riderObj, v: new THREE.Vector3(fx * v * 0.8, 2.5 + v * 0.1, fz * v * 0.8), w: new THREE.Vector3(v * 0.35 + 2, (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 4), lift: 0.25 }
+  };
+  fadeDelay = camMode === 0 ? 0.45 : 1.1;
+}
+let tumble = null, fadeDelay = 0.45;
+const _tq = new THREE.Quaternion(), _te = new THREE.Vector3();
+function updateTumble(dt) {
+  for (const k of ['bike', 'rider']) {
+    const b = tumble[k], o = b.o;
+    b.v.y -= 9.81 * dt;
+    o.position.addScaledVector(b.v, dt);
+    const gh = groundH(o.position.x, o.position.z) + b.lift;
+    if (o.position.y < gh) {
+      o.position.y = gh;
+      if (b.v.y < -1.5) { b.v.y *= -0.32; b.w.multiplyScalar(0.7); } else b.v.y = 0;
+      const f = Math.exp(-dt * 2.6); b.v.x *= f; b.v.z *= f; b.w.multiplyScalar(Math.exp(-dt * 2.2));
+    }
+    const ang = b.w.length() * dt; if (ang > 1e-5) { _te.copy(b.w).normalize(); _tq.setFromAxisAngle(_te, ang); o.quaternion.premultiply(_tq); }
+  }
 }
 function respawn() {
   // pick a safe spot from ~4s before the crash
@@ -263,7 +289,8 @@ function respawn() {
   for (let i = safeHistory.length - 1; i >= 0; i--) if (now - safeHistory[i].t > 4) { spot = safeHistory[i]; break; }
   if (!spot) { spawnAt(spawnName); } else player.reset(spot.x, spot.z, spot.yaw);
   safeHistory = [];
-  $('fade').classList.remove('black'); $('crash').classList.remove('show'); crashCam = null;
+  $('fade').style.opacity = 0; $('crash').classList.remove('show'); crashCam = null;
+  if (tumble) { scene.remove(tumble.rider.o); tumble = null; selectBike(bikeIdx, false); }
 }
 
 // ------------------------------------------------------------ HUD
@@ -399,10 +426,37 @@ function updateSky(dt) {
   return nightAmt;
 }
 
+// ------------------------------------------------------------ real headlight beams on the nearest cars at night
+const carLights = [];
+for (let i = 0; i < 4; i++) { const l = new THREE.SpotLight(0xfff1dc, 0, 70, 0.5, 0.6, 1.3); const t = new THREE.Object3D(); l.target = t; scene.add(l, t); carLights.push(l); }
+let carLightT = 0, carLightCars = [];
+function updateCarLights(dt) {
+  const night = smoothstep(0.08, -0.06, sunDir.y);
+  carLightT -= dt;
+  if (carLightT <= 0) {
+    carLightT = 0.3;
+    carLightCars = night > 0.01 ? traffic.cars.map((c) => [(c.pos.x - player.pos.x) ** 2 + (c.pos.z - player.pos.z) ** 2, c]).filter((a) => a[0] < 90 * 90).sort((a, b) => a[0] - b[0]).slice(0, 4).map((a) => a[1]) : [];
+  }
+  carLights.forEach((l, i) => {
+    const c = carLightCars[i];
+    if (!c) { l.intensity = 0; return; }
+    const fx = Math.sin(c.yaw), fz = Math.cos(c.yaw);
+    l.position.set(c.pos.x + fx * c.L * 0.5, 0.75, c.pos.z + fz * c.L * 0.5);
+    l.target.position.set(c.pos.x + fx * 25, 0, c.pos.z + fz * 25);
+    l.intensity = 45 * night;
+  });
+}
+
 // ------------------------------------------------------------ camera
 const camPos = new THREE.Vector3(), tmpV = new THREE.Vector3();
 let headBob = 0, shake = 0, lookYaw = 0;
 function updateCamera(dt, inp) {
+  if (crashCam && tumble && camMode === 1) {
+    const t = tumble.bike.o.position;
+    const want = tmpV.set(t.x - Math.sin(player.yaw) * 6, t.y + 2.6, t.z - Math.cos(player.yaw) * 6);
+    camPos.lerp(want, 1 - Math.exp(-dt * 3)); camera.position.copy(camPos); camera.lookAt(t.x, t.y + 0.4, t.z);
+    return;
+  }
   if (crashCam) {
     crashCam.vel.y -= 9.8 * dt; crashCam.pos.addScaledVector(crashCam.vel, dt);
     const gh = groundH(crashCam.pos.x, crashCam.pos.z) + 0.25;
@@ -453,8 +507,9 @@ function updateCamera(dt, inp) {
 // ------------------------------------------------------------ bike visual sync
 let wheelRot = 0, crankRot = 0;
 function syncBike(dt) {
+  if (tumble) { updateTumble(dt); return; }
   const r = bike.root;
-  r.visible = player.alive || deadTimer > 2.6;
+  r.visible = true;
   r.position.copy(player.pos);
   r.rotation.order = 'YXZ';
   r.rotation.y = player.yaw;
@@ -464,15 +519,36 @@ function syncBike(dt) {
   bike.rear.rotation.x = wheelRot; bike.front.rotation.x = wheelRot * (player.spec.rr / player.spec.rf);
   bike.steer.rotation.y = -player.steer * 0.45 * (1 - clamp(Math.abs(player.speed) / 14, 0, 0.85));
   if (bike.crank) { crankRot += player.speed * 0.9 * dt; bike.crank.rotation.x = crankRot; }
-  bike.rider.update();
+  // ---- suspension: fork dive under braking, rear squat under power, landings, surface chatter
+  const susp = syncBike.s || (syncBike.s = { f: 0, fv: 0, r: 0, rv: 0 });
+  const rough = player.surface === 'asphalt' ? 0.002 : player.surface === 'concrete' ? 0.004 : 0.016;
+  const v = Math.abs(player.speed);
+  let fT = 0.02 + Math.max(0, -player.accel) * 0.009 - Math.max(0, player.accel) * 0.004, rT = 0.025 + Math.max(0, player.accel) * 0.006;
+  if (player.air) { fT = -0.04; rT = -0.04; }
+  if (player.pitch > 0.05) fT = -0.05; // front wheel unloaded in a wheelie
+  if (susp.wasAir && !player.air) { const k = Math.min(1.2, player.airTime + 0.2); susp.fv += k * 1.6; susp.rv += k * 2.0; }
+  susp.wasAir = player.air;
+  const chatter = (Math.random() - 0.5) * rough * Math.min(1, v / 8);
+  for (const [k, kv, T] of [['f', 'fv', fT + chatter], ['r', 'rv', rT - chatter]]) {
+    susp[kv] += ((T - susp[k]) * 160 - susp[kv] * 14) * dt; susp[k] = clamp(susp[k] + susp[kv] * dt, -0.06, 0.16);
+  }
+  const body = r.children[0];
+  body.position.y = -susp.r * 0.55;
+  body.rotation.x = (susp.f - susp.r) / player.spec.wb * 0.8;
+  if (bike.frontRest) bike.front.position.set(bike.frontRest.x, bike.frontRest.y + susp.f, bike.frontRest.z);
+  bike.rider.update({ accel: player.accel, lean: player.lean, air: player.air, pitch: player.pitch });
 }
 
 // ------------------------------------------------------------ main loop
 const clock = new THREE.Clock();
 let frameAcc = 0, frames = 0, fpsShown = 0, qualityTimer = 0;
 function loop() {
+  if (window.__capture) return; // frame-stepped capture drives frame() directly
   requestAnimationFrame(loop);
-  const rawDt = clock.getDelta(); const dt = Math.min(rawDt, 0.1);
+  frame(clock.getDelta());
+}
+function frame(rawDt) {
+  const dt = Math.min(rawDt, 0.1);
   const inp = started ? readInput() : { throttle: 0, brake: 0, steer: 0 };
   if (started) {
     const steps = Math.ceil(dt / (1 / 120));
@@ -480,6 +556,7 @@ function loop() {
       const res = player.update(dt / steps, inp, traffic, wildlife);
       if (res) { onCrash(res); break; }
     }
+    { const since = 3.2 - deadTimer; $('fade').style.opacity = !player.alive && deadTimer > 0 ? smoothstep(fadeDelay, fadeDelay + 0.6, since) : 0; }
     if (!player.alive) { deadTimer -= Math.min(rawDt, 0.25); if (deadTimer <= 0 && deadTimer > -10) { deadTimer = -20; respawn(); } }
     else if (!player.air && player.pitch < 0.1 && Math.abs(player.lean) < 0.3) {
       const now = performance.now() / 1000;
@@ -492,6 +569,8 @@ function loop() {
   if (grass) grass.update(player.pos.x, player.pos.z);
   updateChunks(player.pos.x, player.pos.z);
   dust.update(dt, player, bike);
+  if (started) marks.update(player, inp);
+  updateCarLights(dt);
   for (const ax of ['x', 'z']) { const st = signal(ax, traffic.time || 0), m = signalMats[ax]; if (m) for (const c of ['r', 'y', 'g']) m[c].emissiveIntensity = st === c ? 3.2 : 0.02; }
   syncBike(dt);
   updateCamera(dt, inp);
@@ -626,4 +705,4 @@ function loadRealModels() {
   loadRealModels();
   loop();
 })();
-window.__game = { player, scene, camera, renderer, get traffic() { return traffic; }, get wildlife() { return wildlife; }, get bike() { return bike; }, setTime: (t) => (timeOfDay = t), setCam: (m) => (camMode = m), keys };
+window.__game = { player, scene, camera, renderer, get traffic() { return traffic; }, get wildlife() { return wildlife; }, get bike() { return bike; }, setTime: (t) => (timeOfDay = t), setCam: (m) => (camMode = m), keys, step: (dt) => frame(dt), startCapture: () => { window.__capture = true; } };
