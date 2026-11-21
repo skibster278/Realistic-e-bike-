@@ -699,12 +699,6 @@ function loadRealModels() {
     const u = urls.shift(); if (!u) return;
     loader.load(u, ok, undefined, () => tryLoad(urls, ok));
   };
-  tryLoad(['assets/models/fox.glb', 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Fox/glTF-Binary/Fox.glb', 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/Fox/glTF-Binary/Fox.glb'], (g) => {
-    const box = new THREE.Box3().setFromObject(g.scene), size = box.getSize(new THREE.Vector3());
-    const s = 1.0 / Math.max(size.x, size.z);
-    g.scene.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-    wildlife.addAnimated(() => SkeletonUtils.clone(g.scene), g.animations, 8, s);
-  });
 }
 
 // ------------------------------------------------------------ boot
