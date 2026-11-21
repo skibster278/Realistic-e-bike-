@@ -178,7 +178,7 @@ export function buildBike(spec) {
         st.position.x = sx * 0.142; st.rotation.z = sx * -0.12;
       }
     }
-    add(side(poly([[hz - 0.04, hy - 0.02], [hz - 0.15, hy + 0.05, pivot.z + 0.28, seatY + 0.01], [pivot.z + 0.25, seatY - 0.05], [hz - 0.06, hy - 0.12]]), 0.2 * big, 0, 0.03), mx ? m.plastic : m.black);
+    add(side(poly([[hz - 0.04, hy - 0.02], [hz - 0.15, hy + 0.05, pivot.z + 0.28, seatY + 0.01], [pivot.z + 0.25, seatY - 0.05], [hz - 0.06, hy - 0.12]]), 0.17 * big, 0, 0.035), m.satin);
     add(side(poly([[pivot.z + 0.3, seatY + 0.02], [pivot.z + 0.1, seatY + 0.065, pivot.z - 0.05, seatY + 0.07], [-0.24 * k, seatY + 0.09], [-0.3 * k, seatY + 0.07], [-0.28 * k, seatY - 0.02], [pivot.z + 0.25, seatY - 0.05]]), 0.23, 0, 0.035), m.seat);
     add(side(poly([[0.06, seatY - 0.02], [-0.3 * k, seatY + 0.05], [-0.6 * k, seatY + 0.15], [-0.62 * k, seatY + 0.13], [-0.32 * k, seatY + 0.0], [0.04, seatY - 0.07]]), 0.2, 0, 0.012), m.plastic);
     add(boxGeo(0.12, 0.025, 0.02, 0, seatY + 0.09, -0.55 * k, -0.3, 0, 0), m.tail);
@@ -239,7 +239,8 @@ export function buildBike(spec) {
       add(tubeGeo(V(sx * fx, 0.06, offZ), V(sx * fx, -forkLen * 0.52, offZ), 0.03, 0.03, 16), m.fork, steer);
       add(tubeGeo(V(sx * fx, -forkLen * 0.48, offZ), V(sx * fx, -forkLen + 0.05, offZ), 0.024, 0.024, 16), m.stanch, steer);
       add(boxGeo(0.045, 0.09, 0.06, sx * fx, -forkLen + 0.02, offZ), m.fork, steer);
-      add(new THREE.CylinderGeometry(0.032, 0.032, 0.015, 16).translate(sx * fx, 0.07, offZ), m.gold, steer);
+      add(new THREE.CylinderGeometry(0.026, 0.028, 0.02, 16).translate(sx * fx, 0.068, offZ), m.satin, steer);
+      add(new THREE.CylinderGeometry(0.012, 0.012, 0.006, 6).translate(sx * fx, 0.08, offZ), m.gold, steer);
       const fg = add(side(poly([[0.03, 0], [0.045, forkLen * 0.33], [0.015, forkLen * 0.35], [0.0, 0.02]]), 0.05, 0, 0.006), mx ? m.plastic : m.black, steer);
       fg.position.set(sx * fx, -forkLen * 0.95, offZ);
     }
@@ -248,7 +249,7 @@ export function buildBike(spec) {
       const s = new THREE.Shape(); s.moveTo(-fx - 0.04, offZ - 0.035); s.lineTo(fx + 0.04, offZ - 0.035); s.quadraticCurveTo(fx + 0.065, offZ, fx + 0.04, offZ + 0.035); s.lineTo(-fx - 0.04, offZ + 0.035); s.quadraticCurveTo(-fx - 0.065, offZ, -fx - 0.04, offZ - 0.035);
       const g = new THREE.ExtrudeGeometry(s, { depth: t, bevelEnabled: true, bevelSize: 0.006, bevelThickness: 0.006, bevelSegments: 2 });
       g.rotateX(Math.PI / 2); g.translate(0, y + t / 2, 0);
-      add(g, mx ? m.gold : m.satin, steer);
+      add(g, m.satin, steer);
     }
     // front fender (arc shell)
     const fR = rf + (mx ? 0.14 : 0.07), fy = mx ? 0.02 : 0;
@@ -260,9 +261,22 @@ export function buildBike(spec) {
       for (let i = N; i >= 0; i--) { const p = P(a0 + (a1 - a0) * i / N, fR - 0.012); s.lineTo(p[0], p[1]); }
     };
     add(side(fend, 0.17, 0, 0.012), m.plastic, steer);
-    add(side(poly([[offZ + 0.15, 0.08], [offZ + 0.2, -0.04, offZ + 0.17, -0.22], [offZ + 0.12, -0.3], [offZ + 0.1, -0.28], [offZ + 0.12, -0.05]]), 0.26, 0, 0.012), m.plastic, steer);
-    add(new THREE.CylinderGeometry(0.06, 0.065, 0.03, 24).rotateX(Math.PI / 2 - 0.2).translate(0, -0.12, offZ + 0.19), m.light, steer);
-    add(new THREE.TorusGeometry(0.066, 0.008, 6, 24).rotateX(-0.2).translate(0, -0.12, offZ + 0.2), m.black, steer);
+    { // curved number plate shell sitting low in front of the fork tubes
+      const pw = 0.24, ph = 0.27, segX = 10, segY = 8, g = new THREE.PlaneGeometry(pw, ph, segX, segY), pp = g.attributes.position;
+      for (let i = 0; i < pp.count; i++) {
+        const x = pp.getX(i), y = pp.getY(i);
+        const nx = x / (pw / 2), ny = (y + ph / 2) / ph;
+        const narrow = 1 - 0.28 * ny * ny; // tapers toward the top
+        pp.setXYZ(i, x * narrow, -0.3 + ny * ph, offZ + 0.12 + 0.045 * (1 - nx * nx) + 0.03 * Math.sin(ny * Math.PI) - ny * 0.03);
+      }
+      g.computeVertexNormals();
+      const pm = m.plastic.clone(); pm.side = THREE.DoubleSide;
+      add(g, pm, steer);
+      if (!mx) {
+        add(new THREE.CylinderGeometry(0.05, 0.054, 0.02, 28).rotateX(Math.PI / 2 - 0.15).translate(0, -0.16, offZ + 0.19), m.light, steer);
+        add(new THREE.TorusGeometry(0.055, 0.006, 6, 28).rotateX(-0.15).translate(0, -0.16, offZ + 0.2), m.black, steer);
+      } else add(boxGeo(0.12, 0.012, 0.01, 0, -0.21, offZ + 0.175), m.light, steer); // slim LED strip
+    }
   } else {
     for (const sx of [-1, 1]) {
       add(tubeGeo(V(sx * fx, -0.15, offZ), V(sx * fx, -forkLen * 0.55, offZ), 0.019, 0.019, 12), m.stanch, steer);
@@ -274,38 +288,70 @@ export function buildBike(spec) {
     add(new THREE.CylinderGeometry(0.022, 0.022, 0.012, 16).rotateX(Math.PI / 2).translate(0, -0.06, 0.106), m.light, steer);
     if (spec.style === 'city') { const fg = new THREE.TorusGeometry(rf + 0.03, 0.03, 6, 28, 1.9).rotateY(Math.PI / 2).rotateX(0.7).scale(1.3, 1, 1); fg.translate(0, axle.y, axle.z); add(fg, m.black, steer); }
   }
-  // handlebar
+  // ---------------- cockpit: tapered fat bar, two-piece clamps, ribbed grips, forged levers, hoses, dash
   const barW = moto ? 0.4 : spec.style === 'city' ? 0.3 : 0.38;
-  const barY = moto ? 0.15 : 0.08, barZ = spec.style === 'city' ? -0.16 : moto ? -0.04 : -0.02;
-  if (moto) for (const sx of [-1, 1]) add(tubeGeo(V(sx * 0.04, 0.035, 0), V(sx * 0.04, barY - 0.01, barZ + 0.01), 0.018), m.gold, steer);
-  const barPts = [V(-barW, barY + 0.03, barZ - 0.035), V(-barW * 0.55, barY + 0.025, barZ - 0.01), V(0, barY, barZ + 0.005), V(barW * 0.55, barY + 0.025, barZ - 0.01), V(barW, barY + 0.03, barZ - 0.035)];
-  add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(barPts), 40, moto ? 0.013 : 0.011, 10), mx ? m.gold : m.satin, steer);
+  const barY = moto ? 0.13 : 0.07, barZ = spec.style === 'city' ? -0.15 : moto ? -0.035 : -0.02;
+  const rC = moto ? 0.0143 : 0.0159, rE = 0.011; // 28.6 mm / 31.8 mm centre, 22 mm ends
+  const barAt = (x) => { const a = Math.abs(x), t = Math.max(0, (a - 0.11) / (barW - 0.11)); return V(x, barY + 0.04 * Math.pow(t, 1.4), barZ - 0.05 * Math.pow(t, 1.2)); };
+  const barR = (x) => { const a = Math.abs(x); return a < 0.12 ? rC : a < 0.17 ? rC + (rE - rC) * (a - 0.12) / 0.05 : rE; };
+  { const segs = []; const N = 36; for (let i = 0; i < N; i++) { const x0 = -barW + (2 * barW) * i / N, x1 = -barW + (2 * barW) * (i + 1) / N; segs.push(tubeGeo(barAt(x0), barAt(x1), barR(x0), barR(x1), 14)); }
+    add(merge(segs), mx ? m.gold : m.satin, steer); }
+  // bar ends caps
+  for (const sx of [-1, 1]) add(new THREE.CylinderGeometry(0.0125, 0.0125, 0.012, 14).rotateZ(Math.PI / 2).translate(barAt(sx * barW).x + sx * 0.004, barAt(barW).y, barAt(barW).z), m.alu, steer);
   if (moto) {
-    add(boxGeo(0.1, 0.035, 0.03, 0, barY + 0.006, barZ - 0.0), m.satin, steer);
-    if (mx) add(new THREE.CapsuleGeometry(0.022, 0.16, 4, 10).rotateZ(Math.PI / 2).translate(0, barY + 0.05, barZ - 0.01), m.accent, steer);
-  }
-  const gripL = V(barW - 0.06, barY + 0.029, barZ - 0.03), gripR = V(-(barW - 0.06), barY + 0.029, barZ - 0.03);
-  for (const [sx, g] of [[1, gripL], [-1, gripR]]) {
-    const dir = V(sx, 0.05, -0.2).normalize();
-    add(tubeGeo(g.clone().addScaledVector(dir, -0.065), g.clone().addScaledVector(dir, 0.06), 0.017, 0.017, 12), m.rubber, steer);
-    add(new THREE.CylinderGeometry(0.024, 0.024, 0.008, 14).rotateZ(Math.PI / 2).translate(g.x - sx * 0.065, g.y, g.z + 0.012), m.rubber, steer);
-    const per = V(g.x - sx * 0.1, g.y + 0.012, g.z + 0.01);
-    add(boxGeo(0.035, 0.03, 0.04, per.x, per.y, per.z), m.satin, steer);
-    add(boxGeo(0.04, 0.025, 0.035, per.x - sx * 0.01, per.y + 0.035, per.z - 0.01), m.satin, steer);
-    add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([per.clone().add(V(0, 0, 0.02)), per.clone().add(V(sx * 0.07, -0.005, 0.07)), per.clone().add(V(sx * 0.15, -0.012, 0.055))]), 12, 0.0055, 5), m.alu, steer);
-    if (mx) {
-      const hg = add(side(poly([[0.0, 0.0], [0.06, 0.05, 0.12, 0.0], [0.13, -0.03], [0.02, -0.05]]), 0.012, 0, 0.004), m.plastic, steer);
-      hg.position.set(g.x + sx * 0.01, g.y - 0.01, g.z + 0.03); hg.rotation.y = sx * 0.5;
+    for (const sx of [-1, 1]) {
+      const cx = sx * 0.05;
+      add(new THREE.CylinderGeometry(0.017, 0.019, barY - 0.04, 16).translate(cx, 0.035 + (barY - 0.04) / 2, barZ + 0.004), m.satin, steer); // riser
+      add(boxGeo(0.048, 0.02, 0.045, cx, barY - 0.012, barZ), m.satin, steer); // lower clamp
+      add(boxGeo(0.048, 0.016, 0.042, cx, barY + 0.015, barZ), m.satin, steer); // top cap
+      for (const bx of [-0.015, 0.015]) for (const bz of [-0.015, 0.015]) add(new THREE.CylinderGeometry(0.004, 0.004, 0.006, 8).translate(cx + bx, barY + 0.025, barZ + bz), m.alu, steer);
     }
+  } else {
+    add(boxGeo(0.045, 0.04, 0.05, 0, barY - 0.005, barZ + 0.02), m.satin, steer); // stem
+    add(tubeGeo(V(0, 0.0, 0.0), V(0, barY - 0.02, barZ + 0.03), 0.017), m.satin, steer);
   }
-  add(boxGeo(0.045, 0.045, 0.04, gripR.x + 0.075, gripR.y, gripR.z + 0.005), m.satin, steer);
-  // dash
+  const gripL = barAt(barW - 0.065), gripR = barAt(-(barW - 0.065));
+  for (const [sx, g] of [[1, gripL], [-1, gripR]]) {
+    const a = barAt(sx * (barW - 0.128)), b = barAt(sx * (barW - 0.002));
+    add(tubeGeo(a, b, 0.0165, 0.0165, 16), m.rubber, steer);
+    const ribs = []; for (let i = 1; i < 12; i++) { const p = a.clone().lerp(b, i / 12); ribs.push(new THREE.TorusGeometry(0.0168, 0.0016, 4, 16).rotateY(Math.PI / 2).translate(p.x, p.y, p.z)); }
+    add(merge(ribs), m.rubber, steer);
+    add(new THREE.CylinderGeometry(0.022, 0.022, 0.006, 16).rotateZ(Math.PI / 2).translate(a.x - sx * 0.002, a.y, a.z), m.rubber, steer); // flange
+    // perch clamp + master cylinder reservoir
+    const pc = barAt(sx * (barW - 0.16));
+    add(new THREE.CylinderGeometry(0.019, 0.019, 0.022, 14).rotateZ(Math.PI / 2).translate(pc.x, pc.y, pc.z), m.satin, steer);
+    const res = V(pc.x - sx * 0.005, pc.y + 0.026, pc.z + 0.012);
+    add(boxGeo(0.034, 0.02, 0.028, res.x, res.y, res.z), m.black, steer);
+    add(new THREE.CylinderGeometry(0.011, 0.011, 0.004, 12).translate(res.x, res.y + 0.012, res.z), m.alu, steer);
+    // forged lever blade
+    const piv = V(pc.x, pc.y - 0.004, pc.z + 0.03);
+    const lc = new THREE.CatmullRomCurve3([piv, piv.clone().add(V(sx * 0.05, -0.002, 0.028)), piv.clone().add(V(sx * 0.12, -0.008, 0.034)), piv.clone().add(V(sx * 0.165, -0.012, 0.022))]);
+    const lv = new THREE.TubeGeometry(lc, 20, 0.0048, 6); lv.translate(-piv.x, -piv.y, -piv.z).scale(1, 1.5, 1).translate(piv.x, piv.y, piv.z);
+    add(lv, m.alu, steer);
+    add(new THREE.SphereGeometry(0.0072, 10, 8).translate(piv.x + sx * 0.165, piv.y - 0.012, piv.z + 0.022), m.alu, steer);
+    // brake hose: arcs forward and down to the fork / frame
+    const hoseEnd = sx < 0 ? V(fx + 0.02, -forkLen * 0.45, offZ - 0.035) : V(-0.03, -0.12, -0.02);
+    const hc = new THREE.CatmullRomCurve3([res.clone().add(V(0, -0.005, 0.016)), res.clone().add(V(-sx * 0.04, -0.01, 0.07)), V(sx * 0.04, barY - 0.06, offZ + 0.07), V(sx < 0 ? fx * 0.6 : -0.05, -0.08, offZ + 0.02), hoseEnd]);
+    add(new THREE.TubeGeometry(hc, 40, 0.0036, 6), m.black, steer);
+    if (sx > 0) add(boxGeo(0.028, 0.02, 0.026, pc.x - 0.03, pc.y + 0.004, pc.z - 0.006), m.black, steer); // switch cube (left)
+  }
+  // throttle housing on the right grip
+  { const th = barAt(-(barW - 0.138)); add(new THREE.CylinderGeometry(0.023, 0.023, 0.03, 16).rotateZ(Math.PI / 2).translate(th.x, th.y, th.z), m.satin, steer);
+    add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([th.clone().add(V(0, 0.01, 0.02)), V(-0.12, barY + 0.02, barZ + 0.1), V(-0.05, -0.05, offZ + 0.03)]), 24, 0.0035, 5), m.black, steer); }
+  // dash screen in a rubber housing on a short stem above the clamps
   const dc = document.createElement('canvas'); dc.width = 256; dc.height = 128;
   const dt = new THREE.CanvasTexture(dc); dt.colorSpace = THREE.SRGBColorSpace;
-  const dw = mx ? 0.13 : 0.085, dh = dw * 0.55;
-  const dash = add(new THREE.PlaneGeometry(dw, dh), new THREE.MeshBasicMaterial({ map: dt, toneMapped: false }), steer);
-  dash.position.set(0, barY + 0.065, barZ + 0.012); dash.rotation.set(0.95, Math.PI, 0);
-  const bez = add(new THREE.BoxGeometry(dw + 0.012, dh + 0.012, 0.012), m.black, steer); bez.position.set(0, barY + 0.06, barZ + 0.02); bez.rotation.x = 0.95;
+  const dw = mx ? 0.105 : 0.075, dh = dw * 0.58;
+  const dashHolder = new THREE.Group(); dashHolder.position.set(0, barY + 0.05, barZ + 0.03); dashHolder.rotation.x = 0.85; steer.add(dashHolder);
+  const dash = add(new THREE.PlaneGeometry(dw, dh), new THREE.MeshBasicMaterial({ map: dt, toneMapped: false }), dashHolder);
+  dash.rotation.y = Math.PI; dash.position.z = -0.0105;
+  const hs = new THREE.Shape(); const hw = dw / 2 + 0.008, hh = dh / 2 + 0.008, rr2 = 0.01;
+  hs.moveTo(-hw + rr2, -hh); hs.lineTo(hw - rr2, -hh); hs.quadraticCurveTo(hw, -hh, hw, -hh + rr2); hs.lineTo(hw, hh - rr2); hs.quadraticCurveTo(hw, hh, hw - rr2, hh); hs.lineTo(-hw + rr2, hh); hs.quadraticCurveTo(-hw, hh, -hw, hh - rr2); hs.lineTo(-hw, -hh + rr2); hs.quadraticCurveTo(-hw, -hh, -hw + rr2, -hh);
+  const hg = new THREE.ExtrudeGeometry(hs, { depth: 0.012, bevelEnabled: true, bevelSize: 0.003, bevelThickness: 0.003, bevelSegments: 2 }); hg.translate(0, 0, -0.006);
+  add(hg, m.rubber, dashHolder);
+  const glassM = new THREE.MeshPhysicalMaterial({ color: 0x000000, roughness: 0.05, metalness: 0, clearcoat: 1, transparent: true, opacity: 0.25 });
+  const gl = add(new THREE.PlaneGeometry(dw, dh), glassM, dashHolder); gl.rotation.y = Math.PI; gl.position.z = -0.0112;
+  add(new THREE.CylinderGeometry(0.008, 0.01, 0.05, 10).translate(0, -0.03, 0.006), m.satin, dashHolder);
   out.dash = { canvas: dc, tex: dt };
   const spot = new THREE.SpotLight(0xfff2dd, 0, 140, 0.42, 0.5, 1.2);
   spot.position.set(0, -0.1, offZ + 0.25); steer.add(spot);
@@ -315,7 +361,7 @@ export function buildBike(spec) {
   const gR = new THREE.Object3D(); gR.position.copy(gripR); steer.add(gR);
   out.gripObjs = [gL, gR];
   root.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-  mergeByMaterial(body); mergeByMaterial(steer, [dash]);
+  mergeByMaterial(body); mergeByMaterial(steer);
   out.rider = buildRider(out, spec, pegL, pegR, seat);
   return out;
 }

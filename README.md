@@ -17,6 +17,7 @@ Open `index.html` through any static server (GitHub Pages, or `python3 -m http.s
 | E | Look back |
 | 1–8 | Switch bike |
 | N | Jump between day and night |
+| G | Lock golden hour (sunset light) |
 | Hold T | Fast-forward time |
 | M | Map |
 | R | Respawn |

@@ -81,9 +81,9 @@ function flareTex(kind) {
 const flare = new Lensflare();
 const fT = [flareTex(0), flareTex(1), flareTex(2)];
 flare.addElement(new LensflareElement(fT[0], 260, 0, new THREE.Color(1, 0.95, 0.85)));
-flare.addElement(new LensflareElement(fT[1], 160, 0.35, new THREE.Color(0.9, 0.95, 1)));
+flare.addElement(new LensflareElement(fT[1], 110, 0.35, new THREE.Color(0.9, 0.95, 1)));
 flare.addElement(new LensflareElement(fT[2], 70, 0.6));
-flare.addElement(new LensflareElement(fT[1], 260, 0.85, new THREE.Color(1, 0.85, 0.7)));
+flare.addElement(new LensflareElement(fT[1], 140, 0.85, new THREE.Color(1, 0.85, 0.7)));
 flare.addElement(new LensflareElement(fT[2], 40, 1.0));
 const flareHolder = new THREE.Object3D(); flareHolder.add(flare); scene.add(flareHolder);
 
@@ -157,7 +157,8 @@ addEventListener('keydown', (e) => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
   if (!started) return;
   if (e.code === 'KeyC' || e.code === 'KeyV') camMode = (camMode + 1) % 2;
-  if (e.code === 'KeyN') timeOfDay = timeOfDay > 6 && timeOfDay < 19 ? 21 : 8;
+  if (e.code === 'KeyN') timeOfDay = timeOfDay > 6 && timeOfDay < 19 ? 21 : 17.45;
+  if (e.code === 'KeyG') { lockGolden = !lockGolden; if (lockGolden) timeOfDay = 17.45; toast(lockGolden ? 'Golden hour locked' : 'Day cycle running'); }
   if (e.code === 'KeyB') useBloom = !useBloom;
   if (e.code === 'KeyR') killPlayer('Respawning…');
   if (e.code === 'KeyM') bigMap = !bigMap;
@@ -224,7 +225,7 @@ function crashSound() {
 
 // ------------------------------------------------------------ game state
 let grass = null; const dust = new Dust(scene);
-let started = false, camMode = 0, timeOfDay = 17.3, bigMap = false;
+let started = false, camMode = 0, timeOfDay = 17.45, bigMap = false, lockGolden = false;
 const DAY_MINUTES = 14; // real minutes for a full 24h cycle
 const player = new Player();
 let bikeIdx = 3, bike = null, traffic, wildlife, mapInfo;
@@ -327,7 +328,10 @@ function setEnvIntensity(v) {
 // ------------------------------------------------------------ day / night
 const sunDir = new THREE.Vector3(); let envTimer = 0, lampTimer = 0, lastNight = -1;
 function updateSky(dt) {
-  timeOfDay = (timeOfDay + (dt * 24) / (DAY_MINUTES * 60) * (keys['KeyT'] ? 40 : 1)) % 24;
+  // cinematic time: golden hours (sunrise/sunset) pass ~4x slower than midday/midnight
+  const golden0 = (timeOfDay > 16.3 && timeOfDay < 19.2) || (timeOfDay > 5.6 && timeOfDay < 8.2);
+  const pace = lockGolden ? 0 : (golden0 ? 0.35 : 1.6);
+  timeOfDay = (timeOfDay + (dt * 24) / (DAY_MINUTES * 60) * pace * (keys['KeyT'] ? 40 : 1)) % 24;
   const a = ((timeOfDay - 6) / 24) * Math.PI * 2;
   sunDir.set(Math.cos(a) * 0.8, Math.sin(a) * 0.85, 0.55).normalize();
   const elev = sunDir.y;
@@ -345,8 +349,9 @@ function updateSky(dt) {
   const sunCol = new THREE.Color().setRGB(1, lerp(1, 0.62, golden), lerp(0.96, 0.38, golden));
   sun.color.copy(elev > -0.05 ? sunCol : new THREE.Color(0x8fa8ff));
   sun.intensity = elev > -0.05 ? 4.2 * smoothstep(-0.05, 0.15, elev) : 0.25 * smoothstep(0.05, 0.3, moonDir.y);
-  hemi.intensity = lerp(0.07, 0.6, day);
-  hemi.color.setRGB(lerp(0.35, 0.74, day), lerp(0.42, 0.84, day), lerp(0.7, 1, day));
+  hemi.intensity = lerp(0.07, 0.6, day) * (1 + golden * 0.7);
+  hemi.color.setRGB(lerp(0.35, 0.74, day), lerp(0.42, 0.84, day), lerp(0.7, 1, day)).lerp(new THREE.Color(1.0, 0.78, 0.6), golden * 0.45);
+  hemi.groundColor.setRGB(0.29, 0.25, 0.19).lerp(new THREE.Color(0.45, 0.3, 0.2), golden * 0.6);
   const fogDay = new THREE.Color(hdrTex ? 0xc4d2e0 : 0xb9cde0).lerp(new THREE.Color(0xe0b89a), golden * 0.7);
   scene.fog.color.copy(fogDay).lerp(new THREE.Color(0x0a0f1a), night);
   scene.fog.near = lerp(60, 250, day); scene.fog.far = lerp(1100, 3300, day);
@@ -379,7 +384,7 @@ function updateSky(dt) {
   // environment map refresh
   if (hdrTex) {
     scene.backgroundIntensity = lerp(0.015, 1, day) * lerp(1, 0.75, golden);
-    scene.environmentIntensity = lerp(0.02, 0.5, day) * lerp(1, 0.6, golden);
+    scene.environmentIntensity = lerp(0.02, 0.5, day) * lerp(1, 1.1, golden);
     setEnvIntensity(scene.environmentIntensity);
     scene.backgroundRotation && (scene.backgroundRotation.y = 0);
     envTimer = 1e9;
@@ -495,6 +500,7 @@ function loop() {
   updateCamera(dt, inp);
   updateSky(dt);
   updateAudio(player, inp);
+  if (gradePass) { const gl2 = smoothstep(0.45, 0.05, sunDir.y) * smoothstep(-0.08, 0.04, sunDir.y); gradePass.uniforms.warm.value = 0.75 + gl2 * 0.9; gradePass.uniforms.sat.value = 1.08 + gl2 * 0.08; }
   if (gradePass) { const v = Math.abs(player.speed); gradePass.uniforms.blur.value += ((player.alive ? smoothstep(18, 42, v) : 0) * 0.7 - gradePass.uniforms.blur.value) * Math.min(1, dt * 4); }
   // HUD
   if (started) {
