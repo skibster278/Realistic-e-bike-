@@ -165,24 +165,70 @@ addEventListener('keydown', (e) => {
   if (/^Digit[1-8]$/.test(e.code)) { const i = +e.code.slice(5) - 1; if (BIKES[i]) selectBike(i, true); }
 });
 addEventListener('keyup', (e) => { keys[e.code] = false; });
-const touch = { l: false, r: false, gas: false, brake: false, lift: false };
+// ------------------------------------------------------------ touch controls (multi-touch, analog stick, tilt option)
+const touch = { steer: 0, gas: false, brake: false, lift: false, dive: false, look: false, tilt: false, tiltSteer: 0, used: false };
+function showTouch() {
+  if (touch.used) return; touch.used = true;
+  document.body.classList.add('touch');
+  if (started) $('touch').classList.remove('hide');
+}
+addEventListener('touchstart', showTouch, { passive: true });
+{
+  const stick = $('stick'), knob = $('knob');
+  let sid = null;
+  const move = (e) => {
+    const r = stick.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2, R = r.width / 2;
+    let dx = (e.clientX - cx) / R, dy = (e.clientY - cy) / R; const m = Math.hypot(dx, dy); if (m > 1) { dx /= m; dy /= m; }
+    knob.style.transform = `translate(${dx * R * 0.62}px, ${dy * R * 0.25}px)`;
+    const dead = 0.08, a = Math.max(0, Math.abs(dx) - dead) / (1 - dead);
+    touch.steer = Math.sign(dx) * Math.pow(a, 1.35); // finer control near centre
+  };
+  stick.addEventListener('pointerdown', (e) => { e.preventDefault(); sid = e.pointerId; stick.setPointerCapture(sid); move(e); });
+  stick.addEventListener('pointermove', (e) => { if (e.pointerId === sid) move(e); });
+  const end = (e) => { if (e.pointerId !== sid) return; sid = null; touch.steer = 0; knob.style.transform = ''; };
+  stick.addEventListener('pointerup', end); stick.addEventListener('pointercancel', end);
+}
 document.querySelectorAll('[data-t]').forEach((el) => {
-  const k = el.dataset.t;
-  const on = (e) => { e.preventDefault(); touch[k] = true; el.classList.add('on'); };
-  const off = (e) => { e.preventDefault(); touch[k] = false; el.classList.remove('on'); };
-  el.addEventListener('touchstart', on, { passive: false }); el.addEventListener('touchend', off); el.addEventListener('touchcancel', off);
-  el.addEventListener('pointerdown', on); el.addEventListener('pointerup', off); el.addEventListener('pointerleave', off);
+  const k = el.dataset.t; const ids = new Set();
+  const on = (e) => { e.preventDefault(); ids.add(e.pointerId); el.setPointerCapture(e.pointerId); touch[k] = true; el.classList.add('on'); };
+  const off = (e) => { ids.delete(e.pointerId); if (!ids.size) { touch[k] = false; el.classList.remove('on'); } };
+  el.addEventListener('pointerdown', on); el.addEventListener('pointerup', off); el.addEventListener('pointercancel', off);
+  el.addEventListener('contextmenu', (e) => e.preventDefault());
+});
+document.querySelectorAll('[data-a]').forEach((el) => el.addEventListener('pointerdown', async (e) => {
+  e.preventDefault();
+  const a = el.dataset.a;
+  if (a === 'cam') camMode = (camMode + 1) % 2;
+  if (a === 'reset') killPlayer('Respawning…');
+  if (a === 'tilt') {
+    if (!touch.tilt && typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) {
+      try { if ((await DeviceOrientationEvent.requestPermission()) !== 'granted') return; } catch (err) { return; }
+    }
+    touch.tilt = !touch.tilt; el.classList.toggle('active', touch.tilt);
+    $('stick').style.opacity = touch.tilt ? 0.35 : 1;
+    toast(touch.tilt ? 'Tilt steering on' : 'Stick steering');
+  }
+}));
+addEventListener('deviceorientation', (e) => {
+  if (!touch.tilt) return;
+  // landscape: rolling the tablet like a steering wheel changes beta; portrait: gamma
+  const ang = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
+  let roll = Math.abs(ang) === 90 ? (e.beta || 0) * (ang === 90 ? 1 : -1) : (e.gamma || 0);
+  const a = Math.max(0, Math.abs(roll) - 3) / 22;
+  touch.tiltSteer = Math.sign(roll) * Math.min(1, a);
 });
 function readInput() {
   const k = (c) => !!keys[c];
+  const kSteer = (k('KeyD') || k('ArrowRight') ? 1 : 0) - (k('KeyA') || k('ArrowLeft') ? 1 : 0);
+  const tSteer = touch.tilt ? touch.tiltSteer : touch.steer;
   return {
     throttle: k('KeyW') || k('ArrowUp') || touch.gas ? 1 : 0,
     brake: k('KeyS') || k('ArrowDown') || touch.brake ? 1 : 0,
-    steer: (k('KeyD') || k('ArrowRight') || touch.r ? 1 : 0) - (k('KeyA') || k('ArrowLeft') || touch.l ? 1 : 0),
+    steer: Math.max(-1, Math.min(1, kSteer + tSteer)),
     lift: k('ShiftLeft') || k('ShiftRight') || touch.lift,
-    dive: k('ControlLeft') || k('ControlRight') || k('KeyQ'),
+    dive: k('ControlLeft') || k('ControlRight') || k('KeyQ') || touch.dive,
     handbrake: k('Space'),
-    lookBack: k('KeyE')
+    lookBack: k('KeyE') || touch.look
   };
 }
 
@@ -639,7 +685,7 @@ function buildMenu() {
     if (!started || spawnChanged()) spawnAt(spawnName);
     lastSpawn = spawnName; started = true;
     $('hud').classList.remove('hide');
-    if (matchMedia('(pointer: coarse)').matches) $('touch').classList.remove('hide');
+    if (IS_TOUCH || touch.used) { showTouch(); $('touch').classList.remove('hide'); }
   };
 }
 let lastSpawn = null; const spawnChanged = () => lastSpawn !== spawnName;

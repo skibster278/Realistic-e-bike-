@@ -81,7 +81,9 @@ export class Player {
     if (!this.air) {
       const pBal = 1.2;
       const grav = -9.5 * Math.sin(pBal - this.pitch);
-      let lift = Math.max(0, a - 3.2) * 1.6 * (this.isMoto ? 1 : 0.5);
+      // wheelie control: power alone can't lift the front unless the rider asks for it (Shift / WHEELIE)
+      let lift = (pull || this.pitch > 0.15) ? Math.max(0, a - 3.2) * 1.6 * (this.isMoto ? 1 : 0.5) : 0;
+      if (!pull && this.pitch > 0.02 && this.pitch < 0.15) { this.pitchVel = Math.min(this.pitchVel, 0); }
       lift += pull * (this.isMoto ? (4.5 + Math.min(4, s.power / 6000)) : 10.5) * (av < 25 ? 1 : 0.5) * (thr > 0.1 || !this.isMoto ? 1 : 0.4);
       if (!this.isMoto) lift += pull * thr * 1.5;
       let tq = lift + grav;

@@ -44,9 +44,25 @@ h3{margin:22px 0 10px;text-transform:uppercase;font-size:13px;letter-spacing:2px
 .spawns button.sel{border-color:#4fb8ff;background:rgba(79,184,255,.2)}
 #go{display:block;margin:26px auto 10px;padding:16px 70px;font-size:22px;font-weight:900;background:linear-gradient(135deg,#2a8cff,#4fd0ff);border:none;letter-spacing:2px}
 .keys{text-align:center;opacity:.6;font-size:13px}
-#touch{position:fixed;inset:0;pointer-events:none}
-#touch .tl{position:absolute;left:20px;bottom:24px;display:flex;gap:14px}
-#touch .tr{position:absolute;right:20px;bottom:24px;display:flex;gap:12px;align-items:flex-end}
-.tb{pointer-events:auto;width:84px;height:84px;border-radius:18px;background:rgba(255,255,255,.14);border:2px solid rgba(255,255,255,.35);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;backdrop-filter:blur(4px)}
-.tb.tall{height:130px}.tb.sm{font-size:11px}
-.tb.on{background:rgba(79,184,255,.5)}
+#touch{position:fixed;inset:0;pointer-events:none;z-index:4;-webkit-touch-callout:none}
+#stick{position:absolute;left:calc(24px + env(safe-area-inset-left));bottom:calc(26px + env(safe-area-inset-bottom));width:170px;height:170px;border-radius:50%;pointer-events:auto;touch-action:none}
+#stick .ring{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.06),rgba(255,255,255,.14));border:2px solid rgba(255,255,255,.32);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+#stick .ring::before,#stick .ring::after{content:'';position:absolute;top:50%;width:0;height:0;border:9px solid transparent;transform:translateY(-50%);opacity:.55}
+#stick .ring::before{left:14px;border-right-color:#fff}#stick .ring::after{right:14px;border-left-color:#fff}
+#knob{position:absolute;left:50%;top:50%;width:74px;height:74px;margin:-37px 0 0 -37px;border-radius:50%;background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.55),rgba(140,190,255,.28));border:2px solid rgba(255,255,255,.7);box-shadow:0 4px 16px rgba(0,0,0,.35)}
+#stick .lbl{position:absolute;bottom:-20px;width:100%;text-align:center;font-size:10px;letter-spacing:2px;opacity:.55;font-weight:700}
+#pads{position:absolute;right:calc(20px + env(safe-area-inset-right));bottom:calc(22px + env(safe-area-inset-bottom));display:flex;gap:12px;align-items:flex-end}
+.rbtns{display:flex;flex-direction:column;gap:12px;margin-right:4px}
+.tbtn{pointer-events:auto;touch-action:none;width:74px;height:74px;border-radius:50%;background:rgba(255,255,255,.13);border:2px solid rgba(255,255,255,.32);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);color:#fff;transition:transform .06s,background .06s}
+.tbtn svg{width:28px;height:28px}.tbtn span{font-size:9px;font-weight:800;letter-spacing:1px;opacity:.85}
+.tbtn.sm{width:52px;height:52px}.tbtn.sm svg{width:22px;height:22px}.tbtn .tx{font-size:11px;opacity:1}
+.tbtn.on,.pedal.on{background:rgba(79,184,255,.45);transform:scale(.94)}
+.tbtn.active{border-color:#4fb8ff;background:rgba(79,184,255,.3)}
+.pedal{pointer-events:auto;touch-action:none;position:relative;width:86px;border-radius:16px 16px 22px 22px;background:linear-gradient(180deg,rgba(255,255,255,.2),rgba(255,255,255,.08));border:2px solid rgba(255,255,255,.35);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:flex-end;justify-content:center;padding-bottom:10px;transition:transform .06s,background .06s}
+.pedal i{position:absolute;inset:12px 14px 34px;background:repeating-linear-gradient(0deg,rgba(255,255,255,.28) 0 4px,transparent 4px 11px);border-radius:8px}
+.pedal span{font-size:11px;font-weight:900;letter-spacing:1.5px}
+.pedal.gas{height:168px}.pedal.brake{height:118px}
+#tops{position:absolute;right:calc(14px + env(safe-area-inset-right));top:calc(70px + env(safe-area-inset-top));display:flex;flex-direction:column;gap:10px}
+body.touch #gauge{right:auto;left:50%;transform:translateX(-50%) scale(.8);transform-origin:bottom center}
+body.touch #help,body.touch .keys{display:none}
+@media (max-height:500px){#stick{width:140px;height:140px}.pedal.gas{height:130px}.pedal.brake{height:96px}.tbtn{width:60px;height:60px}#minimap{width:120px!important;height:120px!important}}
