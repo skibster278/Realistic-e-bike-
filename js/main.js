@@ -273,6 +273,7 @@ function onCrash(reason) {
     rider: { o: riderObj, v: new THREE.Vector3(fx * v * 0.5, 3.2 + v * 0.08, fz * v * 0.5), w: new THREE.Vector3(3 + v * 0.15, (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 3), lift: 0.3 }
   };
   tumble.bike.o.position.y += 0.3; tumble.rider.o.position.y += 0.2;
+  player.speed = 0; player.wheelieDist = 0;
   fadeDelay = camMode === 0 ? 0.45 : 1.4;
 }
 let tumble = null, fadeDelay = 0.45;
