@@ -5,12 +5,14 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
+import { N8AOPass } from 'three/addons/n8ao/N8AO.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { preloadImages } from './textures.js';
 import { loadImpostor, IMP_UNIFORMS } from './impostor.js';
-import { makeGrass, makeGroundData } from './grass.js';
+import { makeGrass, makeGroundData, makeBlades } from './grass.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { buildWorld, lamps, nightMats, biomeAt, makeMapCanvas, groundH, FOREST, updateChunks, mountainMats } from './world.js';
@@ -27,7 +29,18 @@ const tick = () => new Promise((r) => setTimeout(r, 16));
 // ------------------------------------------------------------ renderer
 const canvas = $('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
-let pixelRatio = Math.min(window.devicePixelRatio, 1.5);
+// quality presets: low / medium (tablet default) / high (desktop default)
+const IS_TOUCH = matchMedia('(pointer: coarse)').matches;
+const PRESETS = {
+  low: { pr: 1, ao: false, shadow: 1024, grass: [5000, 26], bloom: false },
+  medium: { pr: 1.3, ao: 'half', shadow: 2048, grass: [9000, 32], bloom: true },
+  high: { pr: 1.75, ao: 'full', shadow: 4096, grass: [15000, 40], bloom: true }
+};
+let qualityName = 'medium';
+try { qualityName = localStorage.getItem('voltride.quality') || (IS_TOUCH ? 'medium' : 'high'); } catch (e) { qualityName = IS_TOUCH ? 'medium' : 'high'; }
+if (!PRESETS[qualityName]) qualityName = 'medium';
+let Q = PRESETS[qualityName];
+let pixelRatio = Math.min(window.devicePixelRatio, Q.pr);
 renderer.setPixelRatio(pixelRatio);
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
@@ -36,7 +49,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.85;
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(78, innerWidth / innerHeight, 0.06, 7000);
+const camera = new THREE.PerspectiveCamera(78, innerWidth / innerHeight, 0.06, 5200);
 scene.fog = new THREE.Fog(0xbfd1e5, 250, 3300);
 
 // sky
@@ -54,8 +67,8 @@ scene.add(moon);
 
 // lights
 const sun = new THREE.DirectionalLight(0xffffff, 3);
-sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
-const SC = sun.shadow.camera; SC.left = -70; SC.right = 70; SC.top = 70; SC.bottom = -70; SC.near = 1; SC.far = 900;
+sun.castShadow = true; sun.shadow.mapSize.set(Q.shadow, Q.shadow);
+const SC = sun.shadow.camera; SC.left = -80; SC.right = 80; SC.top = 80; SC.bottom = -80; SC.near = 1; SC.far = 900;
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04;
 scene.add(sun, sun.target);
 const hemi = new THREE.HemisphereLight(0xbcd6ff, 0x4a4030, 1.0); scene.add(hemi);
@@ -70,16 +83,23 @@ let composer, bloom;
 function buildComposer() {
   if (composer) { composer.renderTarget1.dispose(); composer.renderTarget2.dispose(); }
   const w = Math.floor(innerWidth * pixelRatio), h = Math.floor(innerHeight * pixelRatio);
-  const rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, samples: 4 });
+  const rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, samples: Q.ao ? 0 : 4 });
   composer = new EffectComposer(renderer, rt);
   composer.setPixelRatio(pixelRatio); composer.setSize(innerWidth, innerHeight);
-  composer.addPass(new RenderPass(scene, camera));
+  if (Q.ao) {
+    aoPass = new N8AOPass(scene, camera, w, h);
+    Object.assign(aoPass.configuration, { aoRadius: 1.6, distanceFalloff: 0.8, intensity: 2.6, aoSamples: Q.ao === 'half' ? 8 : 16, denoiseSamples: Q.ao === 'half' ? 4 : 8, denoiseRadius: 10, halfRes: Q.ao === 'half', gammaCorrection: false, screenSpaceRadius: false });
+    aoPass.configuration.color.set(0x0b0d12);
+    composer.addPass(aoPass);
+  } else { aoPass = null; composer.addPass(new RenderPass(scene, camera)); }
   const prev = bloom ? bloom.strength : 0.35;
   bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), prev, 0.5, 0.9);
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
   composer.addPass(new ShaderPass(GRADE));
+  if (Q.ao) { const fx = new ShaderPass(FXAAShader); fx.material.uniforms.resolution.value.set(1 / w, 1 / h); composer.addPass(fx); }
 }
+let aoPass = null;
 // cinematic grade in display space: gentle S-curve, saturation, warm highlights / cool shadows, vignette
 const GRADE = {
   uniforms: { tDiffuse: { value: null }, vig: { value: 0.32 }, sat: { value: 1.1 }, warm: { value: 0.5 } },
@@ -96,7 +116,7 @@ const GRADE = {
     }`
 };
 buildComposer();
-let useBloom = true;
+let useBloom = Q.bloom;
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
@@ -305,7 +325,7 @@ function updateSky(dt) {
   scene.fog.near = lerp(60, 250, day); scene.fog.far = lerp(1100, 3300, day);
   renderer.toneMappingExposure = lerp(0.95, 0.72, day);
   starM.opacity = smoothstep(0.0, -0.2, elev);
-  moon.position.copy(camera.position).addScaledVector(moonDir, 4500); moon.material.opacity = smoothstep(-0.05, 0.1, moonDir.y);
+  moon.position.copy(camera.position).addScaledVector(moonDir, 4300); moon.material.opacity = smoothstep(-0.05, 0.1, moonDir.y);
   stars.position.copy(camera.position);
   // emissives
   const nightAmt = smoothstep(0.12, -0.08, elev);
@@ -488,6 +508,10 @@ function buildMenu() {
   document.querySelectorAll('[data-spawn]').forEach((b) => (b.onclick = () => {
     spawnName = b.dataset.spawn; document.querySelectorAll('[data-spawn]').forEach((x) => x.classList.toggle('sel', x === b));
   }));
+  document.querySelectorAll('[data-q]').forEach((b) => {
+    b.classList.toggle('sel', b.dataset.q === qualityName);
+    b.onclick = () => { if (b.dataset.q === qualityName) return; try { localStorage.setItem('voltride.quality', b.dataset.q); } catch (e) {} location.reload(); };
+  });
   $('go').onclick = () => {
     initAudio(); audio && audio.ac.resume();
     $('menu').classList.add('hide');
@@ -537,7 +561,13 @@ function loadRealModels() {
   await gl.loadAsync('assets/models/rider.glb').then((g) => setRiderAsset(g)).catch((e) => console.warn('rider', e));
   status('Generating world…'); await tick();
   buildWorld(scene, assets);
-  if (grassTex) { grass = makeGrass(grassTex, makeGroundData(), ...(matchMedia('(pointer: coarse)').matches ? [9000, 32] : [14000, 38])); scene.add(grass); }
+  if (grassTex) { const gd = makeGroundData();
+    // near: geometry blades; mid: grass cards in a ring; far: big sparse cards
+    const near = makeBlades(gd, Q.grass[0], Q.grass[1] * 0.62);
+    const mid = makeGrass(grassTex, gd, Q.grass[0] * 0.55 | 0, Q.grass[1] * 1.4, 0.4, 1.1);
+    const far = makeGrass(grassTex, gd, Q.grass[0] * 0.5 | 0, Q.grass[1] * 3.2, 0.42, 1.9);
+    scene.add(near, mid, far);
+    grass = { update: (x, z) => { near.update(x, z); mid.update(x, z); far.update(x, z); } }; }
   status('Loading cars…');
   {
     const draco = new DRACOLoader(); draco.setDecoderPath('./lib/jsm/libs/draco/gltf/');

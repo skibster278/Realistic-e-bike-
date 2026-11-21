@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Volt Ride</title>
 <link rel="stylesheet" href="style.css">
-<script type="importmap">{"imports":{"three":"./lib/three.module.js","three/addons/":"./lib/jsm/"}}</script>
+<script type="importmap">{"imports":{"three":"./lib/three.module.js","three/addons/":"./lib/jsm/","three/examples/jsm/":"./lib/jsm/","postprocessing":"./lib/jsm/n8ao/pp-shim.js"}}</script>
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -52,6 +52,12 @@
       <button data-spawn="Neighborhood">🏡 Neighborhood</button>
       <button data-spawn="City" class="sel">🏙️ City</button>
       <button data-spawn="Highway">🛣️ Highway</button>
+    </div>
+    <h3>Graphics</h3>
+    <div class="spawns" id="quality">
+      <button data-q="low">Low · fastest</button>
+      <button data-q="medium">Medium · iPad</button>
+      <button data-q="high">High · computer</button>
     </div>
     <button id="go">RIDE</button>
     <p class="keys"><b>WASD</b> ride · <b>Shift</b> wheelie · <b>Ctrl</b> lean fwd · <b>Space</b> brake · <b>C</b> camera · <b>N</b> day/night · <b>H</b> help</p>

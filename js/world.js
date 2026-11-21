@@ -196,7 +196,7 @@ export function buildWorld(scene, assets) {
   // --- base ground
   const grassMap = TX.grassTex(); grassMap.repeat.set(1500, 1500);
   const grassNor = TX.imgTex('leafy_grass_nor', 1500, 1500, false);
-  const ground = addMesh(new THREE.PlaneGeometry(6000, 6000, 150, 150).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: grassMap, normalMap: grassNor, roughness: 1, color: 0x8f9a5c }), false, true);
+  const ground = addMesh(new THREE.PlaneGeometry(6000, 6000, 150, 150).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: grassMap, normalMap: grassNor, roughness: 1, color: 0x76864a }), false, true);
   ground.position.y = -0.12;
 
   // --- city concrete pad
@@ -437,7 +437,7 @@ export function buildWorld(scene, assets) {
       const jp = x > JUMPPARK.x0 - 4 && x < JUMPPARK.x1 + 4 && z > JUMPPARK.z0 - 4 && z < JUMPPARK.z1 + 4;
       const dirt = jp ? 1 : 1 - smoothstep(1.4, 3.4, td);
       const grass = (1 - dirt) * (0.45 + 0.55 * smoothstep(0.3, 0.6, fbm(x * 0.008 + 4, z * 0.008, 3)));
-      w[i * 3] = dirt; w[i * 3 + 1] = grass; w[i * 3 + 2] = 0.7 + fbm(x * 0.05, z * 0.05, 2) * 0.35;
+      w[i * 3] = dirt; w[i * 3 + 1] = grass; w[i * 3 + 2] = 0.55 + fbm(x * 0.05, z * 0.05, 2) * 0.3;
     }
     tg.setAttribute('blend', new THREE.BufferAttribute(w, 3));
     const mat = new THREE.MeshStandardMaterial({ map: fgD, normalMap: TX.imgTex('forest_ground_04_nor', 1, 1, false), roughness: 1 });
@@ -517,9 +517,10 @@ export function buildWorld(scene, assets) {
     if (x > JUMPPARK.x0 - 10 && x < JUMPPARK.x1 + 10 && z > JUMPPARK.z0 - 10 && z < JUMPPARK.z1 + 10) return false;
     return true;
   };
-  for (let i = 0; i < 9000 && pines.length < 3200; i++) {
+  for (let i = 0; i < 40000 && pines.length < 9500; i++) {
     const x = rr(FOREST.x0 + 5, FOREST.x1 - 5), z = rr(FOREST.z0 + 5, FOREST.z1 - 5);
-    if (fbm(x * 0.01, z * 0.01, 2) < 0.38) continue; // clearings
+    const dens = fbm(x * 0.01, z * 0.01, 2);
+    if (dens < 0.36 || rand() > smoothstep(0.36, 0.55, dens)) continue; // clearings + density falloff
     if (!clearOf(x, z, 2)) continue;
     const s = rr(0.7, 1.5);
     if (rand() < 0.78) pines.push([x, terrainH(x, z) - 0.2, z, s]); else leafs.push([x, terrainH(x, z) - 0.2, z, s]);
@@ -530,14 +531,16 @@ export function buildWorld(scene, assets) {
     if (!clearOf(x, z, 1)) continue;
     const s = rr(0.3, 1.6); rocks.push([x, terrainH(x, z) - 0.2 * s, z, s]); if (s > 0.7) addCircle(x, z, s * 0.9, 2);
   }
-  for (let i = 0; i < 2500; i++) {
+  for (let i = 0; i < 1100; i++) {
     const x = rr(FOREST.x0, FOREST.x1), z = rr(FOREST.z0, FOREST.z1);
     if (!clearOf(x, z, 0)) continue;
-    bushes.push([x, terrainH(x, z), z, rr(0.4, 1.1)]);
+    bushes.push([x, terrainH(x, z), z, rr(0.4, 0.9)]);
   }
   // countryside trees
-  for (let i = 0; i < 1400; i++) {
+  for (let i = 0; i < 9000; i++) {
     const x = rr(-1250, 1250), z = rr(-950, 950);
+    const grove = fbm(x * 0.006 + 11, z * 0.006 - 4, 3);
+    if (grove < 0.5 && rand() > 0.12) continue; // trees gather into groves and hedgerows
     if (x > FOREST.x0 - 5 && x < FOREST.x1 + 5 && z > FOREST.z0 - 5 && z < FOREST.z1 + 5) continue;
     if (x > CITY.x0 - 15 && x < HOOD.x1 + 15 && z > CITY.z0 - 15 && z < CITY.z1 + 15) continue;
     if (!clearOf(x, z, 4)) continue;
@@ -605,7 +608,7 @@ export function buildWorld(scene, assets) {
     glbInst(A.props.rock_09, rv[1].map((t) => [t[0], t[1] - 0.15 * t[3], t[2], t[3] * 1.6]), { norm: true, maxDist: 140 });
     glbInst(A.props.boulder_01, rv[2].filter((t, i) => i % 2 === 0).map((t) => [t[0], t[1] - 0.3 * t[3], t[2], t[3] * 3]), { norm: true });
   } else inst(rockG, new THREE.MeshStandardMaterial({ color: 0x8a867c, roughness: 0.95, flatShading: true }), rocks);
-  if (A.props && A.props.fern_02) split(bushes, 4).forEach((l, i) => glbInst(A.props.fern_02, l.map((t) => [t[0], t[1] - 0.05, t[2], t[3] * 1.6]), { cast: false, maxDist: 90, pick: [['fern_02_a', 'fern_02_b', 'fern_02_c', 'fern_02_d'][i]] }));
+  if (A.props && A.props.fern_02) split(bushes, 4).forEach((l, i) => glbInst(A.props.fern_02, l.map((t) => [t[0], t[1] - 0.05, t[2], t[3] * 1.1]), { cast: false, maxDist: 90, pick: [['fern_02_a', 'fern_02_b', 'fern_02_c', 'fern_02_d'][i]] }));
   else inst(bushG, new THREE.MeshStandardMaterial({ color: 0x3f5a24, roughness: 1, flatShading: true }), bushes, true, false);
   if (A.props && A.props.dead_tree_trunk) {
     const logs = [];
