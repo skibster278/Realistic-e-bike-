@@ -19,7 +19,7 @@ export class Dust {
       vertexShader: `attribute float aLife; attribute float aSize; uniform float scale; varying float vA;
         void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); vA = aLife; gl_PointSize = aSize * scale / -mv.z; gl_Position = projectionMatrix * mv; }`,
       fragmentShader: `uniform sampler2D map; uniform vec3 col, sunCol, ambCol; varying float vA;
-        void main(){ vec4 t = texture2D(map, gl_PointCoord); float a = t.a * vA * 0.55; if (a < 0.01) discard;
+        void main(){ vec4 t = texture2D(map, gl_PointCoord); float a = t.a * vA * vA * 0.16; if (a < 0.01) discard;
           gl_FragColor = vec4(col * (ambCol * 1.5 + sunCol * 0.9), a);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
@@ -35,13 +35,13 @@ export class Dust {
     const v = Math.abs(player.speed), surf = player.surface;
     const loose = surf === 'dirt' ? 1 : surf === 'grass' ? 0.45 : 0;
     if (player.alive && !player.air && loose > 0 && (v > 2 || player.accel > 2)) {
-      const rate = loose * (Math.min(1, v / 12) * 50 + Math.max(0, player.accel) * 6);
+      const rate = loose * (Math.min(1, v / 12) * 18 + Math.max(0, player.accel) * 3);
       const n = Math.min(8, Math.floor(rate * dt + Math.random()));
       const fx = Math.sin(player.yaw), fz = Math.cos(player.yaw);
       for (let k = 0; k < n; k++) {
         const sp = 1.5 + Math.random() * 2 + Math.max(0, player.accel) * 0.35;
         this.emit(player.pos.x - fx * 0.15 + (Math.random() - 0.5) * 0.3, player.pos.y + 0.12, player.pos.z - fz * 0.15 + (Math.random() - 0.5) * 0.3,
-          -fx * sp + (Math.random() - 0.5) * 1.2, 0.6 + Math.random() * 1.6, -fz * sp + (Math.random() - 0.5) * 1.2, 0.5 + Math.random() * 0.7, 1.2 + Math.random() * 1.2);
+          -fx * sp + (Math.random() - 0.5) * 1.2, 0.6 + Math.random() * 1.6, -fz * sp + (Math.random() - 0.5) * 1.2, 0.25 + Math.random() * 0.35, 0.8 + Math.random() * 0.8);
       }
     }
     for (let i = 0; i < this.n; i++) {
@@ -50,7 +50,7 @@ export class Dust {
       const k = i * 3, drag = Math.exp(-dt * 1.8);
       this.vel[k] *= drag; this.vel[k + 2] *= drag; this.vel[k + 1] = this.vel[k + 1] * drag - 0.6 * dt;
       this.pos[k] += this.vel[k] * dt; this.pos[k + 1] += this.vel[k + 1] * dt; this.pos[k + 2] += this.vel[k + 2] * dt;
-      this.size[i] += dt * 1.2;
+      this.size[i] += dt * 0.7;
       if (this.age[i] < 0) this.age[i] = 0;
     }
     const a = this.points.geometry.attributes; a.position.needsUpdate = a.aLife.needsUpdate = a.aSize.needsUpdate = true;
