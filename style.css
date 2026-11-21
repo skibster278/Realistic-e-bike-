@@ -85,3 +85,7 @@ body.touch #help,body.touch .keys{display:none}
   #minimap{width:120px!important;height:120px!important}
   body.touch #trick{top:30%}
 }
+
+#vig{position:fixed;inset:0;pointer-events:none;display:none;background:radial-gradient(ellipse at 50% 48%,rgba(0,0,0,0) 55%,rgba(10,6,0,.32) 100%)}
+body.cssgrade #c{filter:saturate(1.14) contrast(1.06) brightness(1.02)}
+body.cssgrade #vig{display:block}

@@ -48,6 +48,7 @@ try { qualityName = localStorage.getItem('voltride.q3') || defaultQ; } catch (e)
 if (!PRESETS[qualityName]) qualityName = defaultQ;
 let Q = PRESETS[qualityName];
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: !!Q.direct, powerPreference: 'high-performance' });
+if (Q.direct) document.body.classList.add('cssgrade');
 let pixelRatio = Math.min(window.devicePixelRatio, Q.pr);
 renderer.setPixelRatio(pixelRatio);
 renderer.setSize(innerWidth, innerHeight);
@@ -101,7 +102,7 @@ const lampLights = [];
 for (let i = 0; i < 10; i++) { const l = new THREE.PointLight(0xffc98a, 0, 48, 1.3); scene.add(l); lampLights.push(l); }
 const pmrem = new THREE.PMREMGenerator(renderer);
 const envScene = new THREE.Scene(); const envSky = new Sky(); envSky.scale.setScalar(1000); envScene.add(envSky);
-let envRT = null, hdrTex = null, hdrEnv = null;
+let envRT = null, hdrTex = null, hdrEnv = null, envDay = null, envGold = null, skyDome = null, envIsGold = false;
 
 // post
 let composer, bloom;
@@ -173,8 +174,8 @@ addEventListener('keydown', (e) => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
   if (!started) return;
   if (e.code === 'KeyC' || e.code === 'KeyV') camMode = (camMode + 1) % 2;
-  if (e.code === 'KeyN') timeOfDay = timeOfDay > 6 && timeOfDay < 19 ? 21 : 17.2;
-  if (e.code === 'KeyG') { lockGolden = !lockGolden; if (lockGolden) timeOfDay = 17.3; toast(lockGolden ? 'Golden hour locked' : 'Day cycle running'); }
+  if (e.code === 'KeyN') { timeOfDay = timeOfDay > 15 ? 12.5 : 16.9; toast(timeOfDay > 15 ? 'Golden hour' : 'Midday'); }
+  if (e.code === 'KeyG') { lockGolden = !lockGolden; if (lockGolden) timeOfDay = 17.2; toast(lockGolden ? 'Golden hour locked' : 'Day cycle running'); }
   if (e.code === 'KeyB') useBloom = !useBloom;
   if (e.code === 'KeyR') killPlayer('Respawning…');
   if (e.code === 'KeyM') bigMap = !bigMap;
@@ -293,7 +294,10 @@ function crashSound() {
 
 // ------------------------------------------------------------ game state
 let grass = null; const dust = new Dust(scene); const marks = new TyreMarks(scene);
-let started = false, camMode = 0, timeOfDay = 17.2, bigMap = false, lockGolden = false;
+let started = false, camMode = 0, timeOfDay = 16.9, bigMap = false, lockGolden = false, dayDir = 1;
+const DAY_START = 10.5, DAY_END = 17.75;
+// all bundled sky photos have their sun at equirect u ~0.6 -> horizontal direction (cos 36deg, sin 36deg)
+const SUN_AZ = { x: Math.cos(0.2 * Math.PI * 2 / 2 * 2 * 0.5 * 2), z: 0 }; SUN_AZ.x = Math.cos(0.6283); SUN_AZ.z = Math.sin(0.6283);
 const DAY_MINUTES = 14; // real minutes for a full 24h cycle
 const player = new Player();
 let bikeIdx = 3, bike = null, traffic, wildlife, mapInfo;
@@ -440,15 +444,15 @@ function setEnvIntensity(v) {
 // ------------------------------------------------------------ day / night
 const sunDir = new THREE.Vector3(); let envTimer = 0, lampTimer = 0, lastNight = -1;
 function updateSky(dt) {
-  // cinematic time: golden hours (sunrise/sunset) pass ~4x slower than midday/midnight
-  // sunset is ~18:00 here: linger in the golden light before it, move briskly through the murky twilight after it
-  const t0 = timeOfDay;
-  const golden0 = (t0 > 16.0 && t0 < 17.9) || (t0 > 6.2 && t0 < 8.2);
-  const dusk = (t0 >= 17.9 && t0 < 19.0) || (t0 > 5.2 && t0 <= 6.2);
-  const pace = lockGolden ? 0 : golden0 ? 0.3 : dusk ? 3 : 1.6;
-  timeOfDay = (timeOfDay + (dt * 24) / (DAY_MINUTES * 60) * pace * (keys['KeyT'] ? 40 : 1)) % 24;
-  const a = ((timeOfDay - 6) / 24) * Math.PI * 2;
-  sunDir.set(Math.cos(a) * 0.8, Math.sin(a) * 0.85, 0.55).normalize();
+  // daylight only: the clock runs from late morning to golden hour and back again (no night).
+  // It lingers in the golden light; noon passes quicker. Sun azimuth is fixed to where the sky photos have their sun.
+  const golden0 = timeOfDay > 16.2;
+  const pace = lockGolden ? 0 : golden0 ? 0.3 : 1.4;
+  timeOfDay += (dt * 24) / (DAY_MINUTES * 60) * pace * dayDir * (keys['KeyT'] ? 40 : 1);
+  if (timeOfDay > DAY_END) { timeOfDay = DAY_END; dayDir = -1; } else if (timeOfDay < DAY_START) { timeOfDay = DAY_START; dayDir = 1; }
+  // elevation: 0 at 18:15, ~52deg at 12:30
+  const el = Math.max(0.02, Math.sin(Math.PI * (timeOfDay - 6.75) / 11.5)) * 0.92;
+  sunDir.set(Math.cos(el) * SUN_AZ.x, Math.sin(el), Math.cos(el) * SUN_AZ.z);
   const elev = sunDir.y;
   su.sunPosition.value.copy(sunDir);
   const day = smoothstep(-0.12, 0.12, elev);
@@ -467,9 +471,9 @@ function updateSky(dt) {
   hemi.intensity = lerp(0.15, 0.6, day) * (1 + golden * 0.7);
   hemi.color.setRGB(lerp(0.35, 0.74, day), lerp(0.42, 0.84, day), lerp(0.7, 1, day)).lerp(new THREE.Color(1.0, 0.78, 0.6), golden * 0.45);
   hemi.groundColor.setRGB(0.29, 0.25, 0.19).lerp(new THREE.Color(0.45, 0.3, 0.2), golden * 0.6);
-  const fogDay = new THREE.Color(hdrTex ? 0xc4d2e0 : 0xb9cde0).lerp(new THREE.Color(0xe0b89a), golden * 0.7);
+  const fogDay = new THREE.Color(0xc6d4e2).lerp(new THREE.Color(0xe6cfb2), golden * 0.85); // matches each sky photo's horizon haze
   scene.fog.color.copy(fogDay).lerp(new THREE.Color(0x0a0f1a), night);
-  scene.fog.near = lerp(60, 250, day); scene.fog.far = lerp(1100, 3300, day);
+  scene.fog.near = lerp(140, 220, 1 - golden); scene.fog.far = Math.min(Q.farClip * 0.97, lerp(2400, 3300, 1 - golden));
   renderer.toneMappingExposure = lerp(1.15, 0.72, day);
   starM.opacity = smoothstep(0.0, -0.2, elev);
   flareHolder.position.copy(camera.position).addScaledVector(sunDir, 4000); flare.visible = elev > -0.02;
@@ -498,8 +502,10 @@ function updateSky(dt) {
   IMP_UNIFORMS.time.value += dt;
   // environment map refresh
   if (hdrTex) {
-    scene.backgroundIntensity = lerp(0.015, 1, day) * lerp(1, 0.75, golden);
-    scene.environmentIntensity = lerp(0.02, 0.5, day) * lerp(1, 1.1, golden);
+    const gmix = smoothstep(0.5, 0.17, elev); // 0 = midday sky, 1 = golden-hour sky
+    if (skyDome) { skyDome.position.copy(camera.position); skyDome.material.uniforms.mixB.value = gmix; skyDome.material.uniforms.gain.value = lerp(1, 0.5, gmix); skyDome.material.uniforms.warm.value.setRGB(1, lerp(1, 0.9, gmix), lerp(1, 0.76, gmix)); }
+    const wantGold = gmix > 0.5; if (wantGold !== envIsGold && envGold) { envIsGold = wantGold; scene.environment = wantGold ? envGold : envDay; }
+    scene.environmentIntensity = lerp(0.5, 0.36, gmix);
     setEnvIntensity(scene.environmentIntensity);
     scene.backgroundRotation && (scene.backgroundRotation.y = 0);
     envTimer = 1e9;
@@ -761,10 +767,28 @@ function loadRealModels() {
 (async function boot() {
   status('Loading photo textures…'); await preloadImages((n, t) => status(`Loading photo textures… ${n}/${t}`));
   status('Loading HDRI sky…');
-  await new Promise((res) => new RGBELoader().load('assets/hdri/sky.hdr' + AV, (t) => {
-    t.mapping = THREE.EquirectangularReflectionMapping; hdrTex = t;
-    hdrEnv = pmrem.fromEquirectangular(t).texture; scene.background = t; scene.environment = hdrEnv; sky.visible = false; res();
-  }, undefined, () => res()));
+  const loadHdr = (f) => new Promise((res) => new RGBELoader().load(f + AV, (t) => { t.mapping = THREE.EquirectangularReflectionMapping; res(t); }, undefined, () => res(null)));
+  const [dayHdr, goldHdr] = await Promise.all([loadHdr('assets/hdri/sky.hdr'), loadHdr('assets/hdri/golden.hdr')]);
+  if (dayHdr) {
+    hdrTex = dayHdr; sky.visible = false;
+    envDay = pmrem.fromEquirectangular(dayHdr).texture; envGold = goldHdr ? pmrem.fromEquirectangular(goldHdr).texture : envDay;
+    scene.environment = envDay;
+    // sky dome cross-fading the midday photo into the golden-hour photo
+    skyDome = new THREE.Mesh(new THREE.SphereGeometry(4800, 48, 24), new THREE.ShaderMaterial({
+      side: THREE.BackSide, depthWrite: false, fog: false,
+      uniforms: { tA: { value: dayHdr }, tB: { value: goldHdr || dayHdr }, mixB: { value: 0 }, gain: { value: 1 }, warm: { value: new THREE.Color(1, 1, 1) } },
+      vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position = p.xyww; }',
+      fragmentShader: `uniform sampler2D tA, tB; uniform float mixB, gain; uniform vec3 warm; varying vec3 vDir;
+        vec2 eq(vec3 d){ return vec2(atan(d.z, d.x) * 0.15915494 + 0.5, asin(clamp(d.y, -1.0, 1.0)) * 0.31830989 + 0.5); }
+        void main(){ vec3 d = normalize(vDir); vec2 uv = eq(d);
+          vec3 c = mix(texture2D(tA, uv).rgb, texture2D(tB, uv).rgb, mixB) * gain * warm;
+          gl_FragColor = vec4(c, 1.0);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }`
+    }));
+    skyDome.renderOrder = -1; skyDome.frustumCulled = false; scene.add(skyDome); scene.background = null;
+  }
   status('Loading photoscanned trees & props…');
   const assets = { imp: {}, props: {} };
   const gl = new GLTFLoader(); gl.setMeshoptDecoder(MeshoptDecoder);

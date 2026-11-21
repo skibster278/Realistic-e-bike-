@@ -16,7 +16,7 @@ Open `index.html` through any static server (GitHub Pages, or `python3 -m http.s
 | C | Switch first / third person |
 | E | Look back |
 | 1–8 | Switch bike |
-| N | Jump between day and night |
+| N | Jump between midday and golden hour |
 | G | Lock golden hour (sunset light) |
 | Hold T | Fast-forward time |
 | M | Map |
@@ -29,7 +29,7 @@ Open `index.html` through any static server (GitHub Pages, or `python3 -m http.s
 ## What's in it
 
 - **Bikes:** Sur-Ron Light Bee X, Sur-Ron Ultra Bee, Talaria Sting R, Stark Varg MX and SM, a trail e-MTB, a fat-tire e-bike and a city e-bike. Each has its own power, top speed and weight. Wheelies come from real torque, and you can do jumps, crash, and respawn after 3 seconds.
-- **World:** forest trails with a dirt jump park, deer, rabbits and foxes; a neighborhood; a city with traffic; and a lit highway for night rides. There's a full day/night cycle.
+- **World:** forest trails with a dirt jump park, deer, rabbits and foxes; a neighborhood; a city with traffic; and a lit highway for night rides. Daylight runs from late morning to golden hour and back, with real sky photos blending as the sun drops.
 - **Graphics:**
   - Real HDRI sky and photo-scanned PBR textures.
   - Tree impostors baked from film-quality Poly Haven trees.
