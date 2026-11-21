@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { AV } from './util.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { Lensflare, LensflareElement } from 'three/addons/objects/Lensflare.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -722,7 +723,7 @@ function loadRealModels() {
 (async function boot() {
   status('Loading photo textures…'); await preloadImages((n, t) => status(`Loading photo textures… ${n}/${t}`));
   status('Loading HDRI sky…');
-  await new Promise((res) => new RGBELoader().load('assets/hdri/sky.hdr', (t) => {
+  await new Promise((res) => new RGBELoader().load('assets/hdri/sky.hdr' + AV, (t) => {
     t.mapping = THREE.EquirectangularReflectionMapping; hdrTex = t;
     hdrEnv = pmrem.fromEquirectangular(t).texture; scene.background = t; scene.environment = hdrEnv; sky.visible = false; res();
   }, undefined, () => res()));
@@ -732,11 +733,11 @@ function loadRealModels() {
   await Promise.all([
     ...['pine1', 'pine2', 'pine3', 'jacaranda', 'island'].map((n) => loadImpostor(n).then((r) => { if (r) assets.imp[n] = r; })),
     ...['rock_07', 'rock_09', 'boulder_01', 'fern_02', 'dead_tree_trunk', 'fire_hydrant', 'metal_trash_can', 'modular_street_seating', 'exterior_aircon_unit', 'concrete_road_barrier'].map((n) =>
-      gl.loadAsync(`assets/models/props/${n}.glb`).then((g) => { assets.props[n] = g; }).catch((e) => console.warn('prop', n, e)))
+      gl.loadAsync(`assets/models/props/${n}.glb${AV}`).then((g) => { assets.props[n] = g; }).catch((e) => console.warn('prop', n, e)))
   ]);
-  const grassTex = await new THREE.TextureLoader().loadAsync('assets/impostors/grass_cards.webp').catch(() => null);
+  const grassTex = await new THREE.TextureLoader().loadAsync('assets/impostors/grass_cards.webp' + AV).catch(() => null);
   if (grassTex) { grassTex.colorSpace = THREE.SRGBColorSpace; assets.grass = true; }
-  await gl.loadAsync('assets/models/rider.glb').then((g) => setRiderAsset(g)).catch((e) => console.warn('rider', e));
+  await gl.loadAsync('assets/models/rider.glb' + AV).then((g) => setRiderAsset(g)).catch((e) => console.warn('rider', e));
   status('Generating world…'); await tick();
   buildWorld(scene, assets);
   if (grassTex) { const gd = makeGroundData();
@@ -751,8 +752,8 @@ function loadRealModels() {
     const draco = new DRACOLoader(); draco.setDecoderPath('./lib/jsm/libs/draco/gltf/');
     const cl = new GLTFLoader(); cl.setDRACOLoader(draco); cl.setMeshoptDecoder(MeshoptDecoder);
     await Promise.all([
-      cl.loadAsync('assets/models/ferrari.glb').then((g) => addRealCar(g.scene, 4.6, (o) => o.name === 'body')).catch((e) => console.warn('car', e)),
-      cl.loadAsync('assets/models/car_concept.glb').then((g) => addRealCar(g.scene, 4.7, (o, m) => /paint/i.test(m.name || ''))).catch((e) => console.warn('car', e))
+      cl.loadAsync('assets/models/ferrari.glb' + AV).then((g) => addRealCar(g.scene, 4.6, (o) => o.name === 'body')).catch((e) => console.warn('car', e)),
+      cl.loadAsync('assets/models/car_concept.glb' + AV).then((g) => addRealCar(g.scene, 4.7, (o, m) => /paint/i.test(m.name || ''))).catch((e) => console.warn('car', e))
     ]);
   }
   status('Spawning traffic…'); await tick();

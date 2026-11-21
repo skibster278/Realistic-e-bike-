@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { AV } from './util.js';
 import { rand } from './util.js';
 
 export const IMG = {};
@@ -6,7 +7,7 @@ const FILES = ['asphalt_02_diff', 'asphalt_02_nor', 'asphalt_02_rough', 'leafy_g
 export function preloadImages(onProgress) {
   let n = 0;
   return Promise.all(FILES.map((f) => new Promise((res) => {
-    const im = new Image(); im.onload = () => { IMG[f] = im; onProgress && onProgress(++n, FILES.length); res(); }; im.onerror = () => res(); im.src = `assets/tex/${f}.jpg`;
+    const im = new Image(); im.onload = () => { IMG[f] = im; onProgress && onProgress(++n, FILES.length); res(); }; im.onerror = () => res(); im.src = `assets/tex/${f}.jpg${AV}`;
   })));
 }
 const texCache = {};

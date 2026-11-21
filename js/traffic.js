@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { roads, nodes, LANES, SPEED, parkedSpots, signal, isSignalNode, crossHalf } from './world.js';
 import { merge, boxGeo, rand, rr, pick, V } from './util.js';
+import { makeGenCar, randomCarType, setLightMats, CAR_TYPES } from './cargen.js';
 
 const PAINT = [0xf2f2f2, 0x111111, 0x8a8f96, 0x1f3a6e, 0x8c1010, 0x3a3f44, 0xc9c9c4, 0x2b4a2b, 0xd8b23a, 0x5a2a6e, 0xb8b8b8, 0x7a1a1a];
 const paintMats = PAINT.map((c) => new THREE.MeshPhysicalMaterial({ color: c, roughness: 0.28, metalness: 0.5, clearcoat: 1, clearcoatRoughness: 0.08 }));
@@ -8,6 +9,7 @@ const glassMat = new THREE.MeshPhysicalMaterial({ color: 0x0a0e12, roughness: 0.
 const tireMat = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.9 });
 export const headMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, emissive: 0xfff6e6, emissiveIntensity: 0.3 });
 export const tailMat = new THREE.MeshStandardMaterial({ color: 0x400000, emissive: 0xff1a10, emissiveIntensity: 0.4 });
+setLightMats(headMat, tailMat);
 const trimMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.6 });
 
 function extrudeSide(pts, width, bevel = 0.06) {
@@ -90,13 +92,14 @@ export function addRealCar(scene, length, isPaint) {
 export function hasRealCars() { return realCars.length > 0; }
 
 export function makeCar(type, paint) {
+  if (type !== 'real' || !realCars.length) return makeGenCar(type === 'real' || !CAR_TYPES.includes(type) ? 'sedan' : type, paint && paint.color ? paint.color.getHex() : undefined);
   const g = new THREE.Group();
   if (type === 'real' && realCars.length) {
     const rc = pick(realCars);
     const c = rc.proto.clone(true);
     c.traverse((o) => { if (o.isMesh) { if (o.userData.paint) o.material = paint; else if (o.userData.head) o.material = headMat; else if (o.userData.tail) o.material = tailMat; } });
     g.add(c);
-    const proxy = makeCar(rc.L > 4.65 ? 'sedan' : 'sport', paint); proxy.visible = false; g.add(proxy);
+    const proxy = makeGenCar(rc.L > 4.65 ? 'crossover' : 'sports', paint.color.getHex()); proxy.visible = false; g.add(proxy);
     g.userData = { L: rc.L, W: rc.W, real: c, proxy };
     return g;
   }
@@ -131,31 +134,26 @@ export class Traffic {
         if (rand() > 0.3) continue;
         const tt = dir > 0 ? t : s2.len - t, fx = s2.dx * dir, fz = s2.dz * dir;
         const x = s2.ax + s2.dx * tt - fz * 7.0, z = s2.az + s2.dz * tt + fx * 7.0, yaw = Math.atan2(fx, fz);
-        const car = makeCar(rand() < 0.4 && realCars.length ? 'real' : pick(['sedan', 'suv', 'hatch', 'pickup', 'van']), pick(paintMats));
+        const car = makeCar(rand() < 0.18 && realCars.length ? 'real' : randomCarType('city'), pick(paintMats));
         car.position.set(x, 0, z); car.rotation.y = yaw; scene.add(car);
         car.traverse((o) => { if (o.isMesh) o.castShadow = false; });
         this.parked.push({ mesh: car, pos: car.position, yaw, speed: 0, L: car.userData.L, W: car.userData.W });
       }
     }
     for (const p of parkedSpots.slice(0, 28)) {
-      const car = makeCar(pick(['sedan', 'suv', 'hatch', 'pickup']), pick(paintMats));
+      const car = makeCar(randomCarType('hood'));
       car.position.set(p.x, 0, p.z); car.rotation.y = p.yaw; scene.add(car);
       this.parked.push({ mesh: car, pos: car.position, yaw: p.yaw, speed: 0, L: car.userData.L, W: car.userData.W });
     }
   }
   spawn(seg, kind) {
-    let type;
-    if (kind === 'hwy') type = pick(['sedan', 'suv', 'sport', 'truck', 'sedan', 'pickup', 'van', 'real', 'truck']);
-    else if (kind === 'city') type = pick(['sedan', 'suv', 'hatch', 'van', 'bus', 'sedan', 'real', 'pickup']);
-    else type = pick(['sedan', 'suv', 'hatch', 'pickup', 'real']);
-    if (type === 'real' && !realCars.length) type = 'sport';
-    if (realCars.length && type !== 'bus' && type !== 'truck' && rand() < 0.45) type = 'real';
-    const mesh = makeCar(type, pick(paintMats));
+    let type = realCars.length && rand() < 0.22 ? 'real' : randomCarType(kind === 'forest' ? 'hood' : kind);
+    const mesh = makeCar(type, type === 'real' ? pick(paintMats) : undefined);
     this.scene.add(mesh);
     const dir = rand() < 0.5 ? 1 : -1;
     const lanes = LANES[seg.kind];
-    const lane = type === 'truck' || type === 'bus' ? lanes[lanes.length - 1] : pick(lanes);
-    const car = { mesh, seg, dir, s: rr(0, seg.len), lane, speed: 0, vmax: SPEED[seg.kind] * rr(0.85, 1.15) * (type === 'truck' || type === 'bus' ? 0.8 : 1), pos: mesh.position, yaw: 0, L: mesh.userData.L, W: mesh.userData.W, type };
+    const lane = type === 'van' ? lanes[lanes.length - 1] : pick(lanes);
+    const car = { mesh, seg, dir, s: rr(0, seg.len), lane, speed: 0, vmax: SPEED[seg.kind] * rr(0.85, 1.15) * (type === 'van' ? 0.88 : type === 'sports' || type === 'muscle' ? 1.12 : 1), pos: mesh.position, yaw: 0, L: mesh.userData.L, W: mesh.userData.W, type };
     car.next = this.chooseNext(car);
     const p = this.lanePoint(car, car.s); car.pos.set(p.x, 0, p.z);
     const p2 = this.lanePoint(car, car.s + 3); car.yaw = Math.atan2(p2.x - p.x, p2.z - p.z);
@@ -248,8 +246,12 @@ export class Traffic {
         const ahead = dx * fwdX + dz * fwdZ; if (ahead <= 0 || ahead > 40) continue;
         const side = Math.abs(dx * fwdZ - dz * fwdX);
         const same = Math.sin(o.yaw) * fwdX + Math.cos(o.yaw) * fwdZ > 0.6;
+        if (c.ghostT > 0) continue; // deadlock breaker: drive through for a moment
         if (same) { // queue behind traffic going our way
-          if (side > 2.0) continue;
+          if (side > 2.0) { // different lane: only yield where lanes merge (both inside the junction approach), lower id first
+            if (side < 4 && ahead < c.L / 2 + o.L / 2 + 3 && (c.seg.len - c.s) < 25 && c.id > o.id) target = Math.min(target, o.speed * 0.8);
+            continue;
+          }
           const gap = ahead - (c.L + o.L) / 2;
           target = Math.min(target, Math.max(0, (gap - 3) * 0.6 + o.speed * 0.5));
         } else if (ahead < c.L / 2 + 5 && side < 1.6 + o.W / 2 && c.id > o.id) {
@@ -265,6 +267,10 @@ export class Traffic {
       if (target > c.speed) c.speed = Math.min(target, c.speed + 2.5 * dt);
       else c.speed = Math.max(target, c.speed - 8 * dt);
       this.advance(c, c.speed * dt);
+      // stuck for a while (gridlock / merge standoff)? let this car ghost through other traffic briefly
+      if (c.speed < 0.3 && target < 0.3) c.waitT = (c.waitT || 0) + dt; else c.waitT = 0;
+      if (c.waitT > 6 + (c.id % 5)) { c.ghostT = 2.5; c.waitT = 0; }
+      if (c.ghostT > 0) c.ghostT -= dt;
       // keep the path parameter honest: re-sync it to the car's real progress along the segment
       {
         const sg = c.seg, tAlong = (c.pos.x - sg.ax) * sg.dx + (c.pos.z - sg.az) * sg.dz, sp = c.dir > 0 ? tAlong : sg.len - tAlong;

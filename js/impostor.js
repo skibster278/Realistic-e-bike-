@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { AV } from './util.js';
 
 // Shared lighting uniforms (updated each frame from main.js)
 export const IMP_UNIFORMS = {
@@ -101,9 +102,9 @@ export function makeImpostorMesh(list, lit, nrm, meta) {
 export function loadImpostor(name) {
   const tl = new THREE.TextureLoader();
   return Promise.all([
-    fetch(`assets/impostors/${name}.json`).then((r) => r.json()),
-    new Promise((r, e) => tl.load(`assets/impostors/${name}_lit.webp`, r, undefined, e)),
-    new Promise((r, e) => tl.load(`assets/impostors/${name}_normal.webp`, r, undefined, e))
+    fetch(`assets/impostors/${name}.json${AV}`).then((r) => r.json()),
+    new Promise((r, e) => tl.load(`assets/impostors/${name}_lit.webp${AV}`, r, undefined, e)),
+    new Promise((r, e) => tl.load(`assets/impostors/${name}_normal.webp${AV}`, r, undefined, e))
   ]).then(([meta, lit, nrm]) => {
     lit.colorSpace = THREE.SRGBColorSpace; lit.anisotropy = 4;
     nrm.colorSpace = THREE.NoColorSpace;
