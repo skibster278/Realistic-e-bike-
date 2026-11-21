@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
+import { Lensflare, LensflareElement } from 'three/addons/objects/Lensflare.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -15,7 +16,7 @@ import { loadImpostor, IMP_UNIFORMS } from './impostor.js';
 import { makeGrass, makeGroundData, makeBlades } from './grass.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
-import { buildWorld, lamps, nightMats, biomeAt, makeMapCanvas, groundH, FOREST, updateChunks, mountainMats } from './world.js';
+import { buildWorld, lamps, nightMats, biomeAt, makeMapCanvas, groundH, FOREST, updateChunks, mountainMats, signal, signalMats } from './world.js';
 import { BIKES, buildBike, setRiderAsset } from './bikes.js';
 import { Traffic, headMat, tailMat, addRealCar } from './traffic.js';
 import { Wildlife } from './animals.js';
@@ -65,6 +66,26 @@ const stars = new THREE.Points(starG, starM); scene.add(stars);
 const moon = new THREE.Mesh(new THREE.SphereGeometry(70, 24, 16), new THREE.MeshBasicMaterial({ color: 0xf4f1e6, fog: false, transparent: true }));
 scene.add(moon);
 
+// lens flare (procedural textures) for the sun
+function flareTex(kind) {
+  const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d');
+  const g = x.createRadialGradient(128, 128, 0, 128, 128, 128);
+  if (kind === 0) { g.addColorStop(0, 'rgba(255,255,245,1)'); g.addColorStop(0.08, 'rgba(255,240,210,0.9)'); g.addColorStop(0.3, 'rgba(255,200,140,0.18)'); g.addColorStop(1, 'rgba(255,180,120,0)'); }
+  else if (kind === 1) { g.addColorStop(0, 'rgba(160,200,255,0)'); g.addColorStop(0.7, 'rgba(160,200,255,0.05)'); g.addColorStop(0.85, 'rgba(255,220,160,0.07)'); g.addColorStop(1, 'rgba(255,200,160,0)'); }
+  else { g.addColorStop(0, 'rgba(200,230,255,0.14)'); g.addColorStop(1, 'rgba(200,230,255,0)'); }
+  x.fillStyle = g; x.fillRect(0, 0, 256, 256);
+  if (kind === 0) { x.globalCompositeOperation = 'lighter'; x.strokeStyle = 'rgba(255,240,220,0.09)'; x.lineWidth = 1.5; for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI; x.beginPath(); x.moveTo(128 - Math.cos(a) * 120, 128 - Math.sin(a) * 120); x.lineTo(128 + Math.cos(a) * 120, 128 + Math.sin(a) * 120); x.stroke(); } }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const flare = new Lensflare();
+const fT = [flareTex(0), flareTex(1), flareTex(2)];
+flare.addElement(new LensflareElement(fT[0], 260, 0, new THREE.Color(1, 0.95, 0.85)));
+flare.addElement(new LensflareElement(fT[1], 160, 0.35, new THREE.Color(0.9, 0.95, 1)));
+flare.addElement(new LensflareElement(fT[2], 70, 0.6));
+flare.addElement(new LensflareElement(fT[1], 260, 0.85, new THREE.Color(1, 0.85, 0.7)));
+flare.addElement(new LensflareElement(fT[2], 40, 1.0));
+const flareHolder = new THREE.Object3D(); flareHolder.add(flare); scene.add(flareHolder);
+
 // lights
 const sun = new THREE.DirectionalLight(0xffffff, 3);
 sun.castShadow = true; sun.shadow.mapSize.set(Q.shadow, Q.shadow);
@@ -96,17 +117,22 @@ function buildComposer() {
   bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), prev, 0.5, 0.9);
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
-  composer.addPass(new ShaderPass(GRADE));
+  gradePass = new ShaderPass(GRADE); composer.addPass(gradePass);
   if (Q.ao) { const fx = new ShaderPass(FXAAShader); fx.material.uniforms.resolution.value.set(1 / w, 1 / h); composer.addPass(fx); }
 }
-let aoPass = null;
+let aoPass = null, gradePass = null;
 // cinematic grade in display space: gentle S-curve, saturation, warm highlights / cool shadows, vignette
 const GRADE = {
-  uniforms: { tDiffuse: { value: null }, vig: { value: 0.32 }, sat: { value: 1.1 }, warm: { value: 0.5 } },
+  uniforms: { tDiffuse: { value: null }, vig: { value: 0.32 }, sat: { value: 1.1 }, warm: { value: 0.5 }, blur: { value: 0 } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-  fragmentShader: `uniform sampler2D tDiffuse; uniform float vig, sat, warm; varying vec2 vUv;
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float vig, sat, warm, blur; varying vec2 vUv;
     void main(){
       vec3 c = texture2D(tDiffuse, vUv).rgb;
+      if (blur > 0.001) { // radial speed blur, strongest at the screen edges
+        vec2 dir = (vec2(0.5, 0.52) - vUv); float k = blur * smoothstep(0.15, 0.7, length(dir) * 1.4);
+        vec3 acc = c; for (int i = 1; i < 7; i++) acc += texture2D(tDiffuse, vUv + dir * float(i) * 0.012 * k).rgb;
+        c = acc / 7.0;
+      }
       c = mix(c, c * c * (3.0 - 2.0 * c), 0.28);
       float l = dot(c, vec3(0.299, 0.587, 0.114));
       c = mix(vec3(l), c, sat);
@@ -318,13 +344,14 @@ function updateSky(dt) {
   const sunCol = new THREE.Color().setRGB(1, lerp(1, 0.62, golden), lerp(0.96, 0.38, golden));
   sun.color.copy(elev > -0.05 ? sunCol : new THREE.Color(0x8fa8ff));
   sun.intensity = elev > -0.05 ? 4.2 * smoothstep(-0.05, 0.15, elev) : 0.25 * smoothstep(0.05, 0.3, moonDir.y);
-  hemi.intensity = lerp(0.07, 0.45, day);
+  hemi.intensity = lerp(0.07, 0.6, day);
   hemi.color.setRGB(lerp(0.35, 0.74, day), lerp(0.42, 0.84, day), lerp(0.7, 1, day));
   const fogDay = new THREE.Color(hdrTex ? 0xc4d2e0 : 0xb9cde0).lerp(new THREE.Color(0xe0b89a), golden * 0.7);
   scene.fog.color.copy(fogDay).lerp(new THREE.Color(0x0a0f1a), night);
   scene.fog.near = lerp(60, 250, day); scene.fog.far = lerp(1100, 3300, day);
   renderer.toneMappingExposure = lerp(0.95, 0.72, day);
   starM.opacity = smoothstep(0.0, -0.2, elev);
+  flareHolder.position.copy(camera.position).addScaledVector(sunDir, 4000); flare.visible = elev > -0.02;
   moon.position.copy(camera.position).addScaledVector(moonDir, 4300); moon.material.opacity = smoothstep(-0.05, 0.1, moonDir.y);
   stars.position.copy(camera.position);
   // emissives
@@ -351,7 +378,7 @@ function updateSky(dt) {
   // environment map refresh
   if (hdrTex) {
     scene.backgroundIntensity = lerp(0.015, 1, day) * lerp(1, 0.75, golden);
-    scene.environmentIntensity = lerp(0.02, 0.42, day) * lerp(1, 0.6, golden);
+    scene.environmentIntensity = lerp(0.02, 0.5, day) * lerp(1, 0.6, golden);
     setEnvIntensity(scene.environmentIntensity);
     scene.backgroundRotation && (scene.backgroundRotation.y = 0);
     envTimer = 1e9;
@@ -461,10 +488,12 @@ function loop() {
   wildlife.update(dt, player);
   if (grass) grass.update(player.pos.x, player.pos.z);
   updateChunks(player.pos.x, player.pos.z);
+  for (const ax of ['x', 'z']) { const st = signal(ax, traffic.time || 0), m = signalMats[ax]; if (m) for (const c of ['r', 'y', 'g']) m[c].emissiveIntensity = st === c ? 3.2 : 0.02; }
   syncBike(dt);
   updateCamera(dt, inp);
   updateSky(dt);
   updateAudio(player, inp);
+  if (gradePass) { const v = Math.abs(player.speed); gradePass.uniforms.blur.value += ((player.alive ? smoothstep(18, 42, v) : 0) * 0.7 - gradePass.uniforms.blur.value) * Math.min(1, dt * 4); }
   // HUD
   if (started) {
     const kmh = Math.round(Math.abs(player.speed) * 3.6);

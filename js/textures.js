@@ -74,7 +74,7 @@ export function roadTex(kind, w) {
   blotches(x, W, H, 30, 'rgba(20,20,22,A)', 40, 160, 0.25);
   blotches(x, W, H, 12, 'rgba(90,90,92,A)', 40, 120, 0.1);
   // tyre tracks (darker strips)
-  const lanes = kind === 'city' ? [-6, -2.2, 2.2, 6] : kind === 'hwy' ? [-7.2, -3.2, 3.2, 7.2] : [-2.6, 2.6];
+  const lanes = kind === 'city' ? [-4.75, -1.8, 1.8, 4.75] : kind === 'hwy' ? [-7.2, -3.2, 3.2, 7.2] : [-2.6, 2.6];
   for (const l of lanes) for (const o of [-0.8, 0.8]) {
     x.fillStyle = 'rgba(15,15,15,0.18)';
     x.fillRect(W / 2 + (l + o) * ppm - 0.35 * ppm, 0, 0.7 * ppm, H);
@@ -90,7 +90,8 @@ export function roadTex(kind, w) {
   if (kind === 'city') {
     line(-half + 0.6, 0.15, WH); line(half - 0.6, 0.15, WH);
     line(-0.15, 0.12, YE); line(0.15, 0.12, YE);
-    line(-4, 0.13, WH, true); line(4, 0.13, WH, true);
+    line(-3.6, 0.13, WH, true); line(3.6, 0.13, WH, true);
+    line(-5.95, 0.12, WH); line(5.95, 0.12, WH); // parking lane edge
   } else if (kind === 'hood') {
     line(0, 0.12, YE, true);
     x.fillStyle = '#8a8a86'; x.fillRect(0, 0, 0.4 * ppm, H); x.fillRect(W - 0.4 * ppm, 0, 0.4 * ppm, H);

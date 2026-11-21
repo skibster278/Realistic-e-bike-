@@ -9,7 +9,7 @@ export const CITY = { x0: -300, x1: 300, z0: -300, z1: 300 };
 export const HOOD = { x0: 300, x1: 900, z0: -300, z1: 300 };
 export const JUMPPARK = { x0: -530, x1: -420, z0: 25, z1: 120 };
 const WID = { city: 16, hood: 10, hwy: 20, forest: 9 };
-export const LANES = { city: [2.2, 6], hood: [2.6], hwy: [3.2, 7.2], forest: [2.4] };
+export const LANES = { city: [1.8, 4.75], hood: [2.6], hwy: [3.2, 7.2], forest: [2.4] };
 export const SPEED = { city: 13, hood: 9, hwy: 29, forest: 16 };
 
 export const roads = [];
@@ -182,13 +182,21 @@ export const lamps = []; // {x,y,z}
 export const nightMats = []; // {mat, max}
 export const parkedSpots = [];
 export const propChunks = [];
+// traffic signals: cycle 30 s — x-axis green 0-12, amber 12-15, z-axis green 15-27, amber 27-30
+export function signal(axis, t) {
+  const c = ((t % 30) + 30) % 30;
+  if (axis === 'x') return c < 12 ? 'g' : c < 15 ? 'y' : 'r';
+  return c < 15 ? 'r' : c < 27 ? 'g' : c < 30 ? 'y' : 'r';
+}
+export const isSignalNode = (n) => n && n.links.length >= 3 && Math.abs(n.x) <= 300 && Math.abs(n.z) <= 300 && n.links.some((l) => l.seg.kind === 'city');
+export const signalMats = {};
 export const mountainMats = [];
 export function updateChunks(px, pz) {
   for (const c of propChunks) { const v = (c.x - px) ** 2 + (c.z - pz) ** 2 < c.maxD * c.maxD; for (const m of c.meshes) m.visible = v; }
 } // {x,z,yaw}
 
 export function buildWorld(scene, assets) {
-  const cityRoofs = [];
+  const cityRoofs = [], cityTrees = [];
   setSeed(7);
   const group = new THREE.Group(); scene.add(group);
   const addMesh = (geo, mat, cast = true, recv = true) => { const m = new THREE.Mesh(geo, mat); m.castShadow = cast; m.receiveShadow = recv; group.add(m); return m; };
@@ -229,6 +237,67 @@ export function buildWorld(scene, assets) {
     const g = new THREE.PlaneGeometry(w, w).rotateX(-Math.PI / 2); g.translate(n.x, 0.09, n.z); ip.push(g);
   }
   addMesh(merge(ip), new THREE.MeshStandardMaterial({ map: pa, roughness: 0.9, bumpMap: bump, bumpScale: 0.6 }), false, true);
+  // traffic signals (pole + mast arm + 3-lens head facing each approach)
+  {
+    const q = new THREE.Quaternion(), m4 = new THREE.Matrix4(), up = V(0, 1, 0);
+    const poleG = merge([new THREE.CylinderGeometry(0.11, 0.14, 6.2, 10).translate(0, 3.1, 0), new THREE.CylinderGeometry(0.07, 0.08, 6.5, 8).rotateX(Math.PI / 2).translate(0, 5.9, -3.2), boxGeo(0.4, 1.15, 0.4, 0, 5.4, -5.6), boxGeo(0.3, 0.05, 0.5, -0.12, 6.0, -5.6)]);
+    const lensG = (y) => new THREE.CircleGeometry(0.12, 16).rotateY(-Math.PI / 2).translate(-0.215, y, -5.6); // faces local -x = toward oncoming traffic
+    const spots = { x: [], z: [] };
+    for (const n of nodes.values()) {
+      if (!isSignalNode(n)) continue;
+      for (const l of n.links) {
+        const s2 = l.seg, sgn = l.end === 0 ? 1 : -1, dx = s2.dx * sgn, dz = s2.dz * sgn;
+        const off = 8 + 2.2, px = n.x + dx * (off + 3) + dz * off, pz = n.z + dz * (off + 3) - dx * off;
+        // local -z of the pole model must point across the road (toward -right) and lenses face +d
+        const yaw = Math.atan2(dz, -dx);
+        spots[Math.abs(dx) > 0.5 ? 'x' : 'z'].push([px, pz, yaw]);
+        addCircle(px, pz, 0.2, 6);
+      }
+    }
+    const all = [...spots.x, ...spots.z];
+    const poles = new THREE.InstancedMesh(poleG, new THREE.MeshStandardMaterial({ color: 0x2b2d30, roughness: 0.5, metalness: 0.6 }), all.length);
+    all.forEach((p2, i) => { q.setFromAxisAngle(up, p2[2]); m4.compose(V(p2[0], 0, p2[1]), q, V(1, 1, 1)); poles.setMatrixAt(i, m4); });
+    poles.castShadow = true; group.add(poles);
+    const cols = { r: 0xff2010, y: 0xffa000, g: 0x10ff60 }, ys = { r: 5.78, y: 5.42, g: 5.06 };
+    for (const ax of ['x', 'z']) {
+      signalMats[ax] = {};
+      for (const c of ['r', 'y', 'g']) {
+        const mat = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: cols[c], emissiveIntensity: 0 });
+        signalMats[ax][c] = mat;
+        const im = new THREE.InstancedMesh(lensG(ys[c]), mat, spots[ax].length);
+        // lenses face +z in local space: rotate them to face oncoming traffic (+d) via the same yaw
+        spots[ax].forEach((p2, i) => { q.setFromAxisAngle(up, p2[2]); m4.compose(V(p2[0], 0, p2[1]), q, V(1, 1, 1)); im.setMatrixAt(i, m4); });
+        group.add(im);
+      }
+    }
+  }
+  // zebra crosswalks + stop lines at city intersections, manhole covers
+  const zebra = [], manholes = [];
+  for (const n of nodes.values()) {
+    if (n.links.length < 3) continue;
+    const city = n.links.some((l) => l.seg.kind === 'city') && Math.abs(n.x) <= 300 && Math.abs(n.z) <= 300;
+    if (!city) continue;
+    const half = 8;
+    for (const l of n.links) {
+      const s2 = l.seg, sgn = l.end === 0 ? 1 : -1, dx = s2.dx * sgn, dz = s2.dz * sgn; // pointing away from node
+      const yaw = Math.atan2(dx, dz);
+      for (let k = -7; k <= 7; k++) {
+        const o = k * 1.0, px = n.x + dx * (half + 2.2) - dz * o, pz = n.z + dz * (half + 2.2) + dx * o;
+        zebra.push(new THREE.PlaneGeometry(0.55, 3.2).rotateX(-Math.PI / 2).rotateY(yaw).translate(px, 0.1, pz));
+      }
+      // stop line on the approaching (right-hand) half
+      const sx = n.x + dx * (half + 4.4) + dz * 3.9, sz = n.z + dz * (half + 4.4) - dx * 3.9;
+      zebra.push(new THREE.PlaneGeometry(7.4, 0.4).rotateX(-Math.PI / 2).rotateY(yaw).translate(sx, 0.1, sz));
+    }
+  }
+  for (const s2 of roads) if (s2.kind !== 'forest') for (let t = 25; t < s2.len - 20; t += 45 + rand() * 40) {
+    const o = (rand() - 0.5) * s2.w * 0.5, x = s2.ax + s2.dx * t - s2.dz * o, z = s2.az + s2.dz * t + s2.dx * o;
+    manholes.push(new THREE.CircleGeometry(0.36, 20).rotateX(-Math.PI / 2).translate(x, 0.1, z));
+  }
+  const paint = new THREE.MeshStandardMaterial({ color: 0xe8e6e0, roughness: 0.75, map: TX.imgTex('asphalt_02_rough', 0.3, 0.3, false) });
+  addMesh(merge(zebra), paint, false, true);
+  addMesh(merge(manholes), new THREE.MeshStandardMaterial({ color: 0x2a2826, roughness: 0.5, metalness: 0.8 }), false, true);
+
 
   // highway medians + guard rails
   const med = [], rails = [];
@@ -342,6 +411,17 @@ export function buildWorld(scene, assets) {
   addMesh(merge(trimGeos), new THREE.MeshStandardMaterial({ color: 0x9a968e, roughness: 0.85, map: TX.imgTex('concrete_wall_004_diff', 0.2, 0.2) }));
   addMesh(merge(roofBits), new THREE.MeshStandardMaterial({ color: 0x8a8a88, roughness: 0.6, metalness: 0.4 }));
 
+  // --- street trees on city sidewalks (between the lamps)
+  for (const s2 of roads) {
+    if (s2.kind !== 'city' || Math.abs(s2.ax) > 300 || Math.abs(s2.bx) > 300 || Math.abs(s2.az) > 300 || Math.abs(s2.bz) > 300) continue;
+    for (let t = 34; t < s2.len - 14; t += 38) for (const sd of [-1, 1]) {
+      if (rand() < 0.15) continue;
+      const rx = -s2.dz * sd, rz = s2.dx * sd, off = s2.w / 2 + 2.0;
+      const x = s2.ax + s2.dx * t + rx * off, z = s2.az + s2.dz * t + rz * off;
+      if (x > 18 && x < 82 && z > 18 && z < 82) continue;
+      cityTrees.push([x, 0, z, rr(0.36, 0.46)]); addCircle(x, z, 0.3, 8);
+    }
+  }
   // --- raised curbs along city & neighbourhood roads
   const curbs = [];
   for (const s2 of roads) {
@@ -595,7 +675,7 @@ export function buildWorld(scene, assets) {
     const pv = split(pines, 3);
     ['pine1', 'pine2', 'pine3'].forEach((k, i) => { const I = A.imp[k]; if (I) group.add(makeImpostorMesh(pv[i].map((t) => [t[0], t[1], t[2], t[3] * 0.78]), I.lit, I.nrm, I.meta)); });
     const lv = split(leafs.filter((t) => !t.hood), 2);
-    if (A.imp.jacaranda) group.add(makeImpostorMesh(lv[0].concat(leafyHood).map((t) => [t[0], t[1], t[2], t[3] * 0.55]), A.imp.jacaranda.lit, A.imp.jacaranda.nrm, A.imp.jacaranda.meta));
+    if (A.imp.jacaranda) group.add(makeImpostorMesh(lv[0].concat(leafyHood).map((t) => [t[0], t[1], t[2], t[3] * 0.55]).concat(cityTrees), A.imp.jacaranda.lit, A.imp.jacaranda.nrm, A.imp.jacaranda.meta));
     if (A.imp.island) group.add(makeImpostorMesh(lv[1].map((t) => [t[0], t[1], t[2], t[3] * 2.2]), A.imp.island.lit, A.imp.island.nrm, A.imp.island.meta));
   } else {
     const vegMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, flatShading: false });

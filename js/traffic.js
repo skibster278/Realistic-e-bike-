@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { roads, nodes, LANES, SPEED, parkedSpots } from './world.js';
+import { roads, nodes, LANES, SPEED, parkedSpots, signal, isSignalNode } from './world.js';
 import { merge, boxGeo, rand, rr, pick, V } from './util.js';
 
 const PAINT = [0xf2f2f2, 0x111111, 0x8a8f96, 0x1f3a6e, 0x8c1010, 0x3a3f44, 0xc9c9c4, 0x2b4a2b, 0xd8b23a, 0x5a2a6e, 0xb8b8b8, 0x7a1a1a];
@@ -117,6 +117,18 @@ export class Traffic {
     }
     // parked cars
     this.parked = [];
+    // kerbside parking along city streets
+    for (const s2 of roads) {
+      if (s2.kind !== 'city' || Math.abs(s2.ax) > 300 || Math.abs(s2.bx) > 300 || Math.abs(s2.az) > 300 || Math.abs(s2.bz) > 300) continue;
+      for (const dir of [1, -1]) for (let t = 20; t < s2.len - 20; t += 7.2) {
+        if (rand() > 0.42) continue;
+        const tt = dir > 0 ? t : s2.len - t, fx = s2.dx * dir, fz = s2.dz * dir;
+        const x = s2.ax + s2.dx * tt - fz * 7.0, z = s2.az + s2.dz * tt + fx * 7.0, yaw = Math.atan2(fx, fz);
+        const car = makeCar(rand() < 0.4 && realCars.length ? 'real' : pick(['sedan', 'suv', 'hatch', 'pickup', 'van']), pick(paintMats));
+        car.position.set(x, 0, z); car.rotation.y = yaw; scene.add(car);
+        this.parked.push({ mesh: car, pos: car.position, yaw, speed: 0, L: car.userData.L, W: car.userData.W });
+      }
+    }
     for (const p of parkedSpots.slice(0, 28)) {
       const car = makeCar(pick(['sedan', 'suv', 'hatch', 'pickup']), pick(paintMats));
       car.position.set(p.x, 0, p.z); car.rotation.y = p.yaw; scene.add(car);
@@ -162,10 +174,12 @@ export class Traffic {
     return { x: seg.ax + seg.dx * t + rx * lane, z: seg.az + seg.dz * t + rz * lane, fx, fz };
   }
   update(dt, player) {
+    this.time = (this.time || 0) + dt;
     const all = this.cars;
     this.lodT = (this.lodT || 0) - dt;
     if (this.lodT <= 0 && player) {
       this.lodT = 0.4;
+      for (const c of this.parked) { const d2 = (c.pos.x - player.pos.x) ** 2 + (c.pos.z - player.pos.z) ** 2; c.mesh.visible = d2 < 170 * 170; const u = c.mesh.userData; if (u.real) { u.real.visible = d2 < 90 * 90; u.proxy.visible = !u.real.visible; } }
       for (const c of all) { const u = c.mesh.userData; if (!u.real) continue; const near = (c.pos.x - player.pos.x) ** 2 + (c.pos.z - player.pos.z) ** 2 < 110 * 110; u.real.visible = near; u.proxy.visible = !near; }
     }
     for (const c of all) {
@@ -175,6 +189,16 @@ export class Traffic {
       const remain = c.seg.len - c.s;
       const turning = c.next.seg.dx * c.next.dir !== c.seg.dx * c.dir || c.next.seg.dz * c.next.dir !== c.seg.dz * c.dir;
       if (turning && remain < 30) target = Math.min(target, 6 + remain * 0.3);
+      // stop at red / amber lights
+      if (c.seg.kind === 'city' && remain < 45) {
+        const [ex, ez] = this.endNode(c.seg, c.dir);
+        const node = nodes.get(`${Math.round(ex)},${Math.round(ez)}`);
+        if (isSignalNode(node)) {
+          const st = signal(Math.abs(c.seg.dx) > 0.5 ? 'x' : 'z', this.time);
+          const stopAt = remain - 12.5; // stop line before the crosswalk
+          if ((st === 'r' || (st === 'y' && stopAt > 6)) && stopAt > -1) target = Math.min(target, Math.max(0, stopAt * 0.55));
+        }
+      }
       // car ahead
       for (const o of all) {
         if (o === c) continue;
