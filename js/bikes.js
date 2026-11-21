@@ -178,7 +178,7 @@ export function buildBike(spec) {
         st.position.x = sx * 0.142; st.rotation.z = sx * -0.12;
       }
     }
-    add(side(poly([[hz - 0.04, hy - 0.02], [hz - 0.15, hy + 0.05, pivot.z + 0.28, seatY + 0.01], [pivot.z + 0.25, seatY - 0.05], [hz - 0.06, hy - 0.12]]), 0.17 * big, 0, 0.035), m.satin);
+    add(side(poly([[hz - 0.05, hy - 0.06], [hz - 0.15, hy + 0.0, pivot.z + 0.28, seatY - 0.02], [pivot.z + 0.25, seatY - 0.05], [hz - 0.06, hy - 0.12]]), 0.15 * big, 0, 0.055), m.plastic);
     add(side(poly([[pivot.z + 0.3, seatY + 0.02], [pivot.z + 0.1, seatY + 0.065, pivot.z - 0.05, seatY + 0.07], [-0.24 * k, seatY + 0.09], [-0.3 * k, seatY + 0.07], [-0.28 * k, seatY - 0.02], [pivot.z + 0.25, seatY - 0.05]]), 0.23, 0, 0.035), m.seat);
     add(side(poly([[0.06, seatY - 0.02], [-0.3 * k, seatY + 0.05], [-0.6 * k, seatY + 0.15], [-0.62 * k, seatY + 0.13], [-0.32 * k, seatY + 0.0], [0.04, seatY - 0.07]]), 0.2, 0, 0.012), m.plastic);
     add(boxGeo(0.12, 0.025, 0.02, 0, seatY + 0.09, -0.55 * k, -0.3, 0, 0), m.tail);
