@@ -23,7 +23,7 @@ function markShared() { for (const k in M) M[k].userData.shared = true; }
 function mats(spec) {
   const std = (o) => new THREE.MeshStandardMaterial(o);
   const out = {
-    plastic: new THREE.MeshPhysicalMaterial({ color: spec.color, roughness: 0.32, metalness: 0, clearcoat: 0.9, clearcoatRoughness: 0.15 }),
+    plastic: new THREE.MeshPhysicalMaterial({ color: spec.color, roughness: 0.3, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.1, envMapIntensity: 2.2 }),
     accent: new THREE.MeshPhysicalMaterial({ color: spec.accent, roughness: 0.35, clearcoat: 0.7 }),
     frame: std({ color: spec.frame, roughness: 0.32, metalness: 0.85 }),
     fork: std({ color: spec.fork, roughness: 0.28, metalness: 0.8 }),

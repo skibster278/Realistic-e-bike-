@@ -94,11 +94,11 @@ const TYPES = {
 const PAINTS = [[0xf2f2f0, 22], [0x111214, 18], [0x8a8e94, 12], [0xb9bcc0, 12], [0x2c3b57, 7], [0x7d1418, 6], [0x3a3d42, 8], [0x1c2a44, 4], [0x5c6b70, 3], [0x2e4a32, 2], [0xc9b7a0, 2], [0x8c5a2a, 1], [0xd6a23a, 1], [0x2a6ea8, 2], [0xc2c6c9, 3]];
 const paintCache = new Map();
 function paintMat(hex) {
-  if (!paintCache.has(hex)) paintCache.set(hex, new THREE.MeshPhysicalMaterial({ color: hex, roughness: 0.32, metalness: hex === 0xf2f2f0 || hex === 0x111214 ? 0.1 : 0.55, clearcoat: 1, clearcoatRoughness: 0.06 }));
+  if (!paintCache.has(hex)) paintCache.set(hex, new THREE.MeshPhysicalMaterial({ color: hex, roughness: 0.32, metalness: hex === 0xf2f2f0 || hex === 0x111214 ? 0.1 : 0.55, clearcoat: 1, clearcoatRoughness: 0.06, envMapIntensity: 2.8 }));
   return paintCache.get(hex);
 }
 export const M = {
-  glass: new THREE.MeshPhysicalMaterial({ color: 0x0b1016, roughness: 0.04, metalness: 0.7, clearcoat: 1 }),
+  glass: new THREE.MeshPhysicalMaterial({ color: 0x0b1016, roughness: 0.03, metalness: 0.8, clearcoat: 1, envMapIntensity: 3.2 }),
   trim: new THREE.MeshStandardMaterial({ color: 0x141516, roughness: 0.7 }),
   chrome: new THREE.MeshStandardMaterial({ color: 0xe8eaec, roughness: 0.08, metalness: 1 }),
   tire: new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.92 }),
@@ -108,7 +108,7 @@ export const M = {
   plate: new THREE.MeshStandardMaterial({ color: 0xf2f0e6, roughness: 0.5 }),
   well: new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 1, side: THREE.DoubleSide }),
   detail: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, side: THREE.DoubleSide }),
-  metal: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.18, metalness: 0.95 })
+  metal: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.14, metalness: 0.95, envMapIntensity: 2.5 })
 };
 
 const variantCache = new Map();

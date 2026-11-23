@@ -26,6 +26,14 @@ Open `index.html` through any static server (GitHub Pages, or `python3 -m http.s
 
 **Touch (iPad/phone):** an analog thumb-stick on the left steers (tap **TILT** to steer by tilting the device instead). On the right are the **GAS** and **BRAKE** pedals plus **WHEELIE** and **LEAN** buttons. The small buttons on the right edge switch camera, look back, toggle tilt and respawn. Everything is multi-touch, so you can steer, hold gas and wheelie at the same time. The on-screen controls only appear while you're playing by touch: pressing any key on a keyboard hides them, and touching the screen again (after a few seconds without typing) brings them back.
 
+## Career, races and multiplayer
+
+- **Start on the slowest bike** (Urban Commuter) and earn cash to buy the others in the Garage (menu). Prices run from $900 (Trail e-MTB) to $42,000 (Stark Varg MX). Every bike you own has 3 levels each of **Motor** (+14% power, +5% top speed) and **Tyre** (+6% grip) upgrades.
+- **Earning:** riding pays (faster pays more), **wheelies** pay big while the needle is in the green zone of the wheelie bar, plus **big air** and **near misses** with traffic. Progress saves automatically on the device.
+- **Wheelie bar:** there's no auto-balance. Holding WHEELIE keeps lifting the front until you loop out, so feather it (and dab the brake) to keep the needle in the green.
+- **Races:** 5 checkpoint races (Downtown Sprint, Highway Blast, Forest Trail Enduro, Suburb Loop, Cross-Country). Ride into a glowing blue beacon (also shown on the minimap) to start. Gold, silver or bronze is based on par time, and best times are saved.
+- **Multiplayer:** in the menu, enter a name and **Create room** to get a 4-letter code; friends type the code and press **Join**. You see each other's bikes and name tags. When the host rides into a race beacon, everyone in the room races it together, with shared standings. It's peer-to-peer over WebRTC using the free PeerJS broker, so there's no server to run. Add `?peer=host:port` to the URL to use your own PeerJS server.
+
 ## What's in it
 
 - **Bikes:** Sur-Ron Light Bee X, Sur-Ron Ultra Bee, Talaria Sting R, Stark Varg MX and SM, a trail e-MTB, a fat-tire e-bike and a city e-bike. Each has its own power, top speed and weight. Wheelies come from real torque, and you can do jumps, crash, and respawn after 3 seconds.

@@ -232,7 +232,7 @@ export function buildWorld(scene, assets) {
   const roadMats = {};
   for (const k of Object.keys(WID)) {
     const nor = TX.imgTex('asphalt_02_nor', WID[k] / 3.5, 12 / 3.5, false), rough = TX.imgTex('asphalt_02_rough', WID[k] / 3.5, 12 / 3.5, false);
-    roadMats[k] = new THREE.MeshStandardMaterial({ map: TX.roadTex(k, WID[k]), roughness: 1, roughnessMap: rough, metalness: 0, normalMap: nor, normalScale: new THREE.Vector2(0.8, 0.8) });
+    roadMats[k] = new THREE.MeshStandardMaterial({ map: TX.roadTex(k, WID[k]), roughness: 0.86, roughnessMap: rough, envMapIntensity: 1.6, metalness: 0, normalMap: nor, normalScale: new THREE.Vector2(0.8, 0.8) });
   }
   const byKind = {};
   for (const s of roads) {
@@ -369,7 +369,7 @@ export function buildWorld(scene, assets) {
   const facades = [];
   for (let i = 0; i < TX.FACADE_COUNT; i++) {
     const f = TX.facadeTex(i);
-    const mat = new THREE.MeshStandardMaterial({ map: f.map, emissiveMap: f.emissive, emissive: 0xffffff, emissiveIntensity: 0, roughnessMap: f.mr, metalnessMap: f.mr, roughness: 1, metalness: i === 2 ? 1 : 0.85, bumpMap: f.bump, bumpScale: 3, envMapIntensity: 1.4 });
+    const mat = new THREE.MeshStandardMaterial({ map: f.map, emissiveMap: f.emissive, emissive: 0xffffff, emissiveIntensity: 0, roughnessMap: f.mr, metalnessMap: f.mr, roughness: 1, metalness: i === 2 ? 1 : 0.85, bumpMap: f.bump, bumpScale: 3, envMapIntensity: i === 2 || i === 3 ? 3.2 : 2.0 });
     nightMats.push({ mat, max: 0.75 });
     facades.push({ mat, geos: [] });
   }
@@ -471,8 +471,12 @@ export function buildWorld(scene, assets) {
       const lx = bx + 5 + 2 + qi * 45 + 22.5, lz = bz + 5 + 2 + qj * 45 + 22.5;
       // face toward nearest street side in z
       const fz = qj === 0 ? -1 : 1;
-      const w = rr(11, 16), d = rr(9, 12), floors = rand() < 0.45 ? 2 : 1, h = floors * 3;
-      const cx = lx + rr(-4, 4), cz = lz + fz * 7;
+      const w = rr(11, 15), d = rr(9, 12), floors = rand() < 0.45 ? 2 : 1, h = floors * 3, F = 0.45; // F = foundation height
+      const cx = lx + rr(-3, 2), cz = lz + fz * 7;
+      const wallCol = pick(HC), trimCol = pick([0xffffff, 0xf4f1ea, 0xe8e2d6, 0x3a3a3a]);
+      // foundation plinth
+      houseBits.push(colorize(boxGeo(w + 0.3, F, d + 0.3, cx, F / 2, cz), 0x9c978e));
+      // main body (siding texture), raised on the plinth
       const g = new THREE.BoxGeometry(w, h, d);
       const uv = g.attributes.uv;
       for (let f = 0; f < 6; f++) for (let v = 0; v < 4; v++) {
@@ -481,28 +485,87 @@ export function buildWorld(scene, assets) {
         const faceW = f < 2 ? d : w;
         uv.setXY(idx, uv.getX(idx) * faceW / 8, uv.getY(idx) * floors);
       }
-      g.translate(cx, h / 2, cz); colorize(g, pick(HC)); walls.push(g);
-      // gable roof
-      const rh = rr(2, 3.5), ov = 0.5;
-      const shape = new THREE.Shape(); shape.moveTo(-d / 2 - ov, 0); shape.lineTo(d / 2 + ov, 0); shape.lineTo(0, rh); shape.closePath();
-      const rg = new THREE.ExtrudeGeometry(shape, { depth: w + ov * 2, bevelEnabled: false });
-      rg.translate(0, 0, -(w + ov * 2) / 2); rg.rotateY(Math.PI / 2);
-      const ruv = rg.attributes.uv; for (let i = 0; i < ruv.count; i++) ruv.setXY(i, ruv.getX(i) / 4, ruv.getY(i) / 4);
-      rg.translate(cx, h, cz); colorize(rg, pick(RC)); roofs.push(rg);
-      addBox(cx - w / 2, cx + w / 2, cz - d / 2, cz + d / 2, h + rh);
+      g.translate(cx, F + h / 2, cz); colorize(g, wallCol); walls.push(g);
+      // 3D window trim matching the painted windows (2 per 8 m tile, 0.97-2.22 m above each floor)
+      const winX = (tile) => [tile * 8 + 1.95, tile * 8 + 6.02];
+      const faces = [ // [axis, sign, faceWidth, direction of u]
+        ['z', 1, w, 1], ['z', -1, w, -1], ['x', 1, d, -1], ['x', -1, d, 1]
+      ];
+      const doorU = 3.98; // gap between the two windows of the first tile
+      for (const [ax, sg, fw, ud] of faces) {
+        const isFront = ax === 'z' && sg === fz;
+        for (let tile = 0; tile * 8 < fw; tile++) for (const u of winX(tile)) {
+          if (u + 0.95 > fw) continue;
+          const o = (-fw / 2 + u) * ud; // offset along the face
+          for (let fl = 0; fl < floors; fl++) {
+            const y0 = F + fl * 3 + 0.97, y1 = F + fl * 3 + 2.22, ym = (y0 + y1) / 2, n = sg * (ax === 'z' ? d / 2 : w / 2) + sg * 0.05;
+            const put = (bw, bh, bd, ox, oy) => houseBits.push(colorize(ax === 'z' ? boxGeo(bw, bh, bd, cx + o + ox, oy, cz + n) : boxGeo(bd, bh, bw, cx + n, oy, cz + o + ox), trimCol));
+            put(1.88, 0.12, 0.1, 0, y1 + 0.06); put(2.0, 0.09, 0.18, 0, y0 - 0.05); // head + sill
+            put(0.1, y1 - y0, 0.1, -0.89, ym); put(0.1, y1 - y0, 0.1, 0.89, ym);   // jambs
+          }
+        }
+        if (isFront) { // front door with frame, step and porch light
+          const o = (-fw / 2 + doorU) * ud, n = sg * (d / 2 + 0.05);
+          houseBits.push(colorize(boxGeo(1.05, 2.15, 0.06, cx + o, F + 1.075, cz + n), pick([0x7a1a1a, 0x1f3a5a, 0x2e4a32, 0x3a2a20, 0x222222])));
+          houseBits.push(colorize(boxGeo(1.3, 0.12, 0.12, cx + o, F + 2.2, cz + n + sg * 0.02), trimCol));
+          for (const sx of [-0.62, 0.62]) houseBits.push(colorize(boxGeo(0.1, 2.2, 0.12, cx + o + sx, F + 1.1, cz + n + sg * 0.02), trimCol));
+          houseBits.push(colorize(boxGeo(1.8, 0.22, 1.0, cx + o, 0.11, cz + n + sg * 0.5), 0xa8a39a), colorize(boxGeo(1.6, 0.22, 0.6, cx + o, 0.33, cz + n + sg * 0.3), 0xb0aaa0));
+          houseBits.push(colorize(boxGeo(0.12, 0.2, 0.12, cx + o + 0.8, F + 2.0, cz + n + sg * 0.06), 0x222222));
+        }
+      }
+      // roof: gable or hip, with overhang, white fascia and gutters
+      const rh = rr(2, 3.4), ov = 0.55, roofCol = pick(RC), RW = w + ov * 2, RD = d + ov * 2, Y = F + h;
+      if (rand() < 0.5) {
+        const shape = new THREE.Shape(); shape.moveTo(-RD / 2, 0); shape.lineTo(RD / 2, 0); shape.lineTo(0, rh); shape.closePath();
+        const rg = new THREE.ExtrudeGeometry(shape, { depth: RW, bevelEnabled: false });
+        rg.translate(0, 0, -RW / 2); rg.rotateY(Math.PI / 2);
+        const ruv = rg.attributes.uv; for (let i = 0; i < ruv.count; i++) ruv.setXY(i, ruv.getX(i) / 4, ruv.getY(i) / 4);
+        rg.translate(cx, Y, cz); colorize(rg, roofCol); roofs.push(rg);
+        // gable-end walls in siding colour
+        for (const sx of [-1, 1]) { const gs = new THREE.Shape(); gs.moveTo(-d / 2, 0); gs.lineTo(d / 2, 0); gs.lineTo(0, rh * (d / RD)); gs.closePath(); const gg = new THREE.ShapeGeometry(gs).rotateY(sx * Math.PI / 2).translate(cx + sx * w / 2, Y, cz); colorize(gg, wallCol); houseBits.push(gg); }
+      } else {
+        const hx = RW / 2, hz = RD / 2, rl = Math.max(0.2, hx - hz); // hip: ridge shorter than the house by the depth
+        const P = [[-hx, 0, -hz], [hx, 0, -hz], [hx, 0, hz], [-hx, 0, hz], [-rl, rh, 0], [rl, rh, 0]];
+        const tri = [[0, 1, 5], [0, 5, 4], [2, 3, 4], [2, 4, 5], [1, 2, 5], [3, 0, 4]];
+        const pos = []; for (const t of tri) for (const i of t) pos.push(P[i][0] + cx, P[i][1] + Y, P[i][2] + cz);
+        const rg = new THREE.BufferGeometry(); rg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        const uvs = []; for (let i = 0; i < pos.length; i += 3) uvs.push((pos[i] - cx) / 4, (pos[i + 2] - cz + pos[i + 1] - Y) / 4);
+        rg.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2)); rg.computeVertexNormals();
+        // make sure every face points outward/up
+        { const n = rg.attributes.normal; let flip = false; for (let i = 0; i < n.count; i++) if (n.getY(i) < -0.01) flip = true; if (flip) { const a = rg.attributes.position.array; for (let i = 0; i < a.length; i += 9) for (let k = 0; k < 3; k++) { const t = a[i + 3 + k]; a[i + 3 + k] = a[i + 6 + k]; a[i + 6 + k] = t; } rg.computeVertexNormals(); } }
+        colorize(rg, roofCol); roofs.push(rg);
+      }
+      houseBits.push(colorize(boxGeo(RW + 0.04, 0.22, 0.06, cx, Y - 0.05, cz - RD / 2), trimCol), colorize(boxGeo(RW + 0.04, 0.22, 0.06, cx, Y - 0.05, cz + RD / 2), trimCol));
+      houseBits.push(colorize(boxGeo(RW, 0.12, 0.14, cx, Y - 0.02, cz - RD / 2 - 0.08), 0xd8d8d4), colorize(boxGeo(RW, 0.12, 0.14, cx, Y - 0.02, cz + RD / 2 + 0.08), 0xd8d8d4)); // gutters
+      houseBits.push(colorize(boxGeo(RW, 0.04, RD, cx, Y - 0.12, cz), trimCol)); // soffit (underside of the eaves)
+      addBox(cx - w / 2, cx + w / 2, cz - d / 2, cz + d / 2, h + F + rh);
+      // attached garage on the driveway side
+      const hasGarage = rand() < 0.6, gw = 6.2, gd = Math.min(d, 7), gcx = cx + w / 2 + gw / 2, gcz = cz + fz * (d - gd) / 2;
+      if (hasGarage) {
+        houseBits.push(colorize(boxGeo(gw, 3.0, gd, gcx, 1.5, gcz), wallCol));
+        const gf = gcz + fz * (gd / 2 + 0.04);
+        houseBits.push(colorize(boxGeo(5.0, 2.3, 0.05, gcx, 1.18, gf), 0xf2f0ea));
+        for (let k = 1; k < 5; k++) houseBits.push(colorize(boxGeo(5.0, 0.03, 0.07, gcx, 0.04 + k * 0.46, gf + fz * 0.01), 0xb8b6b0)); // door panel grooves
+        houseBits.push(colorize(boxGeo(5.3, 0.14, 0.1, gcx, 2.4, gf), trimCol));
+        const gs = new THREE.Shape(); gs.moveTo(-gd / 2 - 0.4, 0); gs.lineTo(gd / 2 + 0.4, 0); gs.lineTo(0, 1.4); gs.closePath();
+        const gr = new THREE.ExtrudeGeometry(gs, { depth: gw + 0.6, bevelEnabled: false }); gr.translate(0, 0, -(gw + 0.6) / 2); gr.rotateY(Math.PI / 2);
+        const gu = gr.attributes.uv; for (let i = 0; i < gu.count; i++) gu.setXY(i, gu.getX(i) / 4, gu.getY(i) / 4);
+        gr.translate(gcx, 3.0, gcz); colorize(gr, roofCol); roofs.push(gr);
+        addBox(gcx - gw / 2, gcx + gw / 2, gcz - gd / 2, gcz + gd / 2, 4.4);
+      }
       // driveway to street
       const streetZ = fz < 0 ? bz : bz + 100;
-      const dx = cx + w / 2 - 3;
-      const z0 = cz + fz * d / 2, z1 = streetZ - fz * 5;
+      const dx = hasGarage ? gcx : cx + w / 2 + 2.4;
+      const z0 = hasGarage ? gcz + fz * gd / 2 : cz + fz * d / 2, z1 = streetZ - fz * 5;
       const dl = Math.abs(z1 - z0);
       drives.push(new THREE.PlaneGeometry(4, dl).rotateX(-Math.PI / 2).translate(dx, 0.04, (z0 + z1) / 2));
       if (rand() < 0.35) parkedSpots.push({ x: dx, z: (z0 + z1) / 2, yaw: fz > 0 ? 0 : Math.PI });
       // chimney, porch, mailbox, picket fence along the street edge of the lot
-      if (rand() < 0.45) houseBits.push(colorize(boxGeo(0.9, rh + 1.4, 0.9, cx - w / 2 + 1.6, h + (rh + 1.4) / 2, cz + rr(-d / 4, d / 4)), pick([0x7a3e2e, 0x8a8a86, 0x5a4a40])));
+      if (rand() < 0.45) houseBits.push(colorize(boxGeo(0.9, rh + 1.4, 0.9, cx - w / 2 + 1.6, F + h + (rh + 1.4) / 2 - 0.6, cz + rr(-d / 5, d / 5)), pick([0x7a3e2e, 0x8a8a86, 0x5a4a40])));
       if (rand() < 0.55) {
-        const pz = cz + fz * (d / 2 + 1.1), pw = Math.min(w * 0.5, 6), px = cx - w / 4;
-        houseBits.push(colorize(boxGeo(pw, 0.15, 2.4, px, 2.75, pz), 0x4a4a4a));
-        for (const o of [-pw / 2 + 0.15, pw / 2 - 0.15]) houseBits.push(colorize(boxGeo(0.15, 2.7, 0.15, px + o, 1.35, pz + fz * 1.0), 0xf0f0ea));
+        const pz = cz + fz * (d / 2 + 1.1), pw = Math.min(w * 0.5, 6), px = cx - w / 2 + 3.98 + 0.4;
+        houseBits.push(colorize(boxGeo(pw, 0.15, 2.4, px, 3.15, pz), 0x4a4a4a));
+        for (const o of [-pw / 2 + 0.15, pw / 2 - 0.15]) houseBits.push(colorize(boxGeo(0.15, 3.1, 0.15, px + o, 1.55, pz + fz * 1.0), 0xf0f0ea));
         houseBits.push(colorize(boxGeo(pw, 0.25, 2.4, px, 0.12, pz), 0xb0aaa0));
       }
       const mz = streetZ - fz * 6.0; houseBits.push(colorize(boxGeo(0.08, 1.05, 0.08, dx + 2.6, 0.52, mz), 0x3a3a3a), colorize(boxGeo(0.26, 0.24, 0.45, dx + 2.6, 1.15, mz), pick([0x2a2a2a, 0x24406a, 0xe8e8e8, 0x7a1a1a])));
@@ -514,14 +577,14 @@ export function buildWorld(scene, assets) {
       // yard trees
       for (let k = 0; k < 3; k++) {
         const tx = lx + rr(-20, 20), tz = lz + rr(-20, 20);
-        if (Math.abs(tx - cx) < w / 2 + 3 && Math.abs(tz - cz) < d / 2 + 3) continue;
+        if (Math.abs(tx - cx - (hasGarage ? gw / 2 : 0)) < w / 2 + (hasGarage ? gw / 2 : 0) + 3 && Math.abs(tz - cz) < d / 2 + 3) continue;
         if (Math.abs(tx - dx) < 4) continue;
         leafyHood.push([tx, 0, tz, rr(0.6, 1.1)]);
       }
     }
   }
   addMesh(merge(walls), houseMat);
-  addMesh(merge(houseBits), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 }));
+  addMesh(merge(houseBits), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, side: THREE.DoubleSide }));
   if (fences.length) {
     for (const f of fences) { const uv = f.attributes.uv, w = f.parameters ? f.parameters.width : 1; }
     const fg = merge(fences.map((f) => { const p = f.attributes.position; const xs = []; for (let i = 0; i < p.count; i++) xs.push(p.getX(i)); const len = Math.max(...xs) - Math.min(...xs); const uv = f.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * len / 1.2); return f; }));

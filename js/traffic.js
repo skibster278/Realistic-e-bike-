@@ -4,7 +4,7 @@ import { merge, boxGeo, rand, rr, pick, V } from './util.js';
 import { makeGenCar, randomCarType, setLightMats, CAR_TYPES } from './cargen.js';
 
 const PAINT = [0xf2f2f2, 0x111111, 0x8a8f96, 0x1f3a6e, 0x8c1010, 0x3a3f44, 0xc9c9c4, 0x2b4a2b, 0xd8b23a, 0x5a2a6e, 0xb8b8b8, 0x7a1a1a];
-const paintMats = PAINT.map((c) => new THREE.MeshPhysicalMaterial({ color: c, roughness: 0.28, metalness: 0.5, clearcoat: 1, clearcoatRoughness: 0.08 }));
+const paintMats = PAINT.map((c) => new THREE.MeshPhysicalMaterial({ color: c, roughness: 0.28, metalness: 0.5, clearcoat: 1, clearcoatRoughness: 0.08, envMapIntensity: 2.8 }));
 const glassMat = new THREE.MeshPhysicalMaterial({ color: 0x0a0e12, roughness: 0.05, metalness: 0.9 });
 const tireMat = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.9 });
 export const headMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, emissive: 0xfff6e6, emissiveIntensity: 0.3 });
@@ -54,7 +54,7 @@ function typeGeo(t) {
 }
 
 const realCars = []; // { proto, L, W }
-const glassReal = new THREE.MeshPhysicalMaterial({ color: 0x10161c, roughness: 0.04, metalness: 0.6, transparent: true, opacity: 0.82 });
+const glassReal = new THREE.MeshPhysicalMaterial({ color: 0x10161c, roughness: 0.03, metalness: 0.7, transparent: true, opacity: 0.85, envMapIntensity: 3.2 });
 // normalise a loaded car: length along +Z (front = +Z), wheels on y=0, centred, given length
 export function addRealCar(scene, length, isPaint) {
   const wrap = new THREE.Group(); wrap.add(scene);
