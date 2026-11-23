@@ -24,6 +24,7 @@ import { BIKES, buildBike, setRiderAsset } from './bikes.js';
 import { Traffic, headMat, tailMat, addRealCar } from './traffic.js';
 import { Wildlife } from './animals.js';
 import { Player } from './player.js';
+import { Game, save, persist, PRICES, ORDER, buy, buyUpgrade, upgradeCost, upLevel, tunedSpec, fmt } from './game.js';
 import { clamp, smoothstep, lerp } from './util.js';
 
 const $ = (id) => document.getElementById(id);
@@ -206,7 +207,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyM') bigMap = !bigMap;
   if (e.code === 'KeyH') $('help').classList.toggle('hide');
   if (e.code === 'Escape' || e.code === 'KeyP') openMenu();
-  if (/^Digit[1-8]$/.test(e.code)) { const i = +e.code.slice(5) - 1; if (BIKES[i]) selectBike(i, true); }
+  if (/^Digit[1-8]$/.test(e.code)) { const i = +e.code.slice(5) - 1; if (BIKES[i] && save.owned.includes(BIKES[i].id)) selectBike(i, true); else if (BIKES[i]) toast(BIKES[i].name + ' — buy it in the garage (' + fmt(PRICES[BIKES[i].id]) + ')'); }
 });
 addEventListener('keyup', (e) => { keys[e.code] = false; });
 // ------------------------------------------------------------ touch controls (multi-touch, analog stick, tilt option)
@@ -318,14 +319,14 @@ function crashSound() {
 }
 
 // ------------------------------------------------------------ game state
-let grass = null; const dust = new Dust(scene); const marks = new TyreMarks(scene);
+let grass = null, game = null; const dust = new Dust(scene); const marks = new TyreMarks(scene);
 let started = false, camMode = 0, timeOfDay = 16.9, bigMap = false, lockGolden = false, dayDir = 1;
 const DAY_START = 10.5, DAY_END = 17.75;
 // all bundled sky photos have their sun at equirect u ~0.6 -> horizontal direction (cos 36deg, sin 36deg)
 const SUN_AZ = { x: Math.cos(0.2 * Math.PI * 2 / 2 * 2 * 0.5 * 2), z: 0 }; SUN_AZ.x = Math.cos(0.6283); SUN_AZ.z = Math.sin(0.6283);
 const DAY_MINUTES = 14; // real minutes for a full 24h cycle
 const player = new Player();
-let bikeIdx = 3, bike = null, traffic, wildlife, mapInfo;
+let bikeIdx = Math.max(0, BIKES.findIndex((b) => b.id === save.sel)), bike = null, traffic, wildlife, mapInfo;
 const SPAWNS = {
   Forest: [-475, 12, 0], City: [-100, -150, 0], Neighborhood: [450, -102.5, Math.PI / 2], Highway: [-600, 816.8, Math.PI / 2]
 };
@@ -348,8 +349,9 @@ function selectBike(i, live) {
   }
   bike = buildBike(BIKES[i]);
   scene.add(bike.root);
-  player.setBike(BIKES[i]);
-  document.querySelectorAll('.bikecard').forEach((c, k) => c.classList.toggle('sel', k === i));
+  player.setBike(tunedSpec(BIKES[i]));
+  save.sel = BIKES[i].id; persist();
+  if (typeof renderGarage === 'function') renderGarage();
   if (live) toast(BIKES[i].name);
 }
 function spawnAt(name) {
@@ -430,6 +432,7 @@ function drawMinimap() {
   // flip x so map matches view (world +x = screen right when facing +z? we draw x→right, z→down)
   mmx.fillStyle = '#ff4d4d';
   for (const c of traffic.cars) { const dx = (c.pos.x - player.pos.x) * S, dz = (c.pos.z - player.pos.z) * S; if (Math.abs(dx) < 400 && Math.abs(dz) < 400) mmx.fillRect(dx - 1.5, dz - 1.5, 3, 3); }
+  if (game) game.drawMap(mmx, S, player.pos.x, player.pos.z);
   mmx.restore();
   // player arrow
   mmx.save(); mmx.translate(W / 2, W / 2); if (big) mmx.rotate(-player.yaw + Math.PI);
@@ -709,6 +712,7 @@ function frame(rawDt) {
   updateChunks(player.pos.x, player.pos.z);
   dust.update(dt, player, bike);
   if (started) marks.update(player, inp);
+  if (game) game.update(dt, started && $('menu').classList.contains('hide'));
   updateCarLights(dt);
   for (const ax of ['x', 'z']) { const st = signal(ax, traffic.time || 0), m = signalMats[ax]; if (m) for (const c of ['r', 'y', 'g']) m[c].emissiveIntensity = st === c ? 3.2 : 0.02; }
   syncBike(dt);
@@ -756,18 +760,32 @@ function frame(rawDt) {
 }
 
 // ------------------------------------------------------------ menu
-function buildMenu() {
-  const wrap = $('bikes');
-  BIKES.forEach((b, i) => {
-    const d = document.createElement('div'); d.className = 'bikecard';
-    const hp = Math.round(b.power / 745.7);
+// garage: bikes in price order; buy, select, and upgrade motor / tyres
+function renderGarage() {
+  const wrap = $('bikes'); if (!wrap) return; wrap.innerHTML = '';
+  $('menumoney').textContent = fmt(save.money);
+  for (const id of ORDER) {
+    const i = BIKES.findIndex((b) => b.id === id), b = BIKES[i]; if (!b) continue;
+    const owned = save.owned.includes(id), sel = save.sel === id, t = tunedSpec(b), hp = Math.round(t.power / 745.7);
+    const d = document.createElement('div'); d.className = 'bikecard' + (sel ? ' sel' : '') + (owned ? '' : ' locked');
+    let ups = '';
+    if (owned) for (const [k, nm] of [['motor', 'Motor'], ['tires', 'Tyres']]) {
+      const c = upgradeCost(id, k), l = upLevel(id, k);
+      ups += `<button class="up" data-up="${k}" ${c == null || c > save.money ? 'disabled' : ''}>${nm} ${'●'.repeat(l)}${'○'.repeat(3 - l)} ${c == null ? 'MAX' : fmt(c)}</button>`;
+    }
     d.innerHTML = `<div class="sw" style="background:linear-gradient(135deg,${b.color},${b.accent})"></div><b>${b.name}</b><small>${b.cls}</small>
-      <div class="stat">Power<i style="width:${Math.min(100, b.power / 440)}%"></i></div>
-      <div class="stat">Top speed<i style="width:${b.vmax / 1.5}%"></i></div>
-      <small>${hp ? hp + ' hp · ' : ''}${b.vmax} km/h · ${b.range}</small><span class="key">${i + 1}</span>`;
-    d.onclick = () => selectBike(i, false);
+      <div class="stat">Power<i style="width:${Math.min(100, t.power / 440)}%"></i></div>
+      <div class="stat">Top speed<i style="width:${t.vmax / 1.5}%"></i></div>
+      <small>${hp ? hp + ' hp · ' : ''}${Math.round(t.vmax)} km/h · ${b.range}</small>
+      ${owned ? (sel ? '<span class="tag">RIDING</span>' : '<button class="act" data-act="sel">RIDE THIS</button>') : `<button class="act buy" data-act="buy" ${save.money < PRICES[id] ? 'disabled' : ''}>BUY ${fmt(PRICES[id])}</button>`}
+      <div class="ups">${ups}</div><span class="key">${i + 1}</span>`;
+    d.querySelectorAll('[data-act]').forEach((el) => el.onclick = (e) => { e.stopPropagation(); if (el.dataset.act === 'buy' && buy(id)) { toast('Bought ' + b.name); selectBike(i, false); } else if (el.dataset.act === 'sel') selectBike(i, false); renderGarage(); });
+    d.querySelectorAll('[data-up]').forEach((el) => el.onclick = (e) => { e.stopPropagation(); if (buyUpgrade(id, el.dataset.up)) { if (save.sel === id) player.setBike(tunedSpec(b)); toast(b.name + ' upgraded'); } renderGarage(); });
     wrap.appendChild(d);
-  });
+  }
+}
+function buildMenu() {
+  renderGarage();
   document.querySelectorAll('[data-spawn]').forEach((b) => (b.onclick = () => {
     spawnName = b.dataset.spawn; document.querySelectorAll('[data-spawn]').forEach((x) => x.classList.toggle('sel', x === b));
   }));
@@ -785,7 +803,7 @@ function buildMenu() {
   };
 }
 let lastSpawn = null; const spawnChanged = () => lastSpawn !== spawnName;
-function openMenu() { $('menu').classList.remove('hide'); $('go').textContent = 'RESUME'; }
+function openMenu() { $('menu').classList.remove('hide'); $('go').textContent = 'RESUME'; persist(); renderGarage(); }
 
 // ------------------------------------------------------------ optional real 3D models (needs internet)
 function loadRealModels() {
@@ -854,6 +872,8 @@ function loadRealModels() {
   }
   status('Spawning traffic…'); await tick();
   traffic = new Traffic(scene, Q.traffic);
+  game = new Game({ scene, player, traffic, toast, $, place: (x, z, yaw) => placePlayer(x, z, yaw) });
+  window.__game.game = game;
   status('Releasing wildlife…'); await tick();
   wildlife = new Wildlife(scene);
   mapInfo = makeMapCanvas();

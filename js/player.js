@@ -27,7 +27,7 @@ export class Player {
     if (!this.alive) return null;
     const s = this.spec, v = this.speed, av = Math.abs(v);
     this.surface = surfaceAt(this.pos.x, this.pos.z);
-    const grip = GRIP[this.surface] * (s.tire === 'slick' && this.surface !== 'asphalt' && this.surface !== 'concrete' ? 0.7 : 1) * (s.tire === 'knobby' && this.surface !== 'asphalt' ? 1.1 : 1);
+    const grip = (s.gripMul || 1) * GRIP[this.surface] * (s.tire === 'slick' && this.surface !== 'asphalt' && this.surface !== 'concrete' ? 0.7 : 1) * (s.tire === 'knobby' && this.surface !== 'asphalt' ? 1.1 : 1);
     const offroadDrag = this.surface === 'grass' ? (s.tire === 'street' ? 0.08 : 0.035) : this.surface === 'dirt' ? 0.02 : 0.012;
 
     // ---------------- longitudinal
@@ -88,21 +88,20 @@ export class Player {
       // rider-initiated wheelie: a "pop" when the button is first pressed, then sustained lift while on the gas.
       // Stronger bikes lift harder; it fades at high speed (aero + less torque) but stays possible to ~90 km/h.
       const spd = Math.min(1, Math.max(0.45, 1 - (av - 14) / 30));
-      if (pullEdge && this.pitch < 0.1 && av > 0.5) this.pitchVel += (this.isMoto ? 1.6 + Math.min(1, s.power / 30000) : 2.0) * spd;
+      if (pullEdge && this.pitch < 0.1 && av > 0.5) this.pitchVel += (this.isMoto ? 1.0 + Math.min(0.6, s.power / 40000) : 1.2) * spd;
       lift += pull * (this.isMoto ? 11 + Math.min(2.5, s.power / 12000) : 11) * spd * (thr > 0.1 || !this.isMoto ? 1 : 0.35);
       if (!this.isMoto) lift += pull * thr * 1.5;
-      // balance-point assist: the rider feathers power/rear brake as the front climbs, so a held wheelie
-      // settles around ~50deg instead of looping (push past it with throttle on a hill or a big pop and you still can)
-      if (pull && this.pitch > 0.5) lift *= Math.max(0, 1 - (this.pitch - 0.5) / 0.38);
+      // skill wheelie (no auto-balance): holding WHEELIE keeps lifting and will loop you out;
+      // feather it (and the rear brake) to hold the needle in the balance zone of the wheelie bar
       if (!pull && this.pitch > 0.15) lift *= Math.max(0, 1 - (this.pitch - 0.15) / 0.6);
+      lift *= Math.max(0.15, 1 - this.pitch / 2.0); // the rider runs out of lean-back as the front climbs
       let tq = lift + grav;
-      if (pull && this.pitch > 0.78 && this.pitchVel > 0) tq -= 16 * (this.pitch - 0.7); // automatic rear-brake dab near the balance point
       if (this.pitch > 0.01) {
         tq -= (inp.brake > 0 ? 14 : 0) + push * 6;
       }
       if (this.pitch <= 0 && tq < 0) { this.pitch = 0; this.pitchVel = 0; }
       else {
-        this.pitchVel += tq * dt; this.pitchVel *= Math.exp(-dt * (pull ? 3.2 : 1.5));
+        this.pitchVel += tq * dt; this.pitchVel *= Math.exp(-dt * 4.2);
         this.pitch += this.pitchVel * dt;
         if (this.pitch < 0) { this.pitch = 0; this.pitchVel = Math.max(0, -this.pitchVel * 0.2); }
       }
