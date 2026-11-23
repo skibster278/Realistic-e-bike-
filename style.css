@@ -126,3 +126,8 @@ body.cssgrade #vig{display:block}
 .bikecard .up{flex:1;font-size:11px;padding:6px 4px;border-radius:8px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08);color:#fff}
 .bikecard .up:disabled{opacity:.45}
 @media (orientation: portrait){#wbar{right:calc(14px + env(safe-area-inset-right));top:38%;height:180px}#moneybox{top:calc(176px + env(safe-area-inset-top))}#countdown{font-size:80px}}
+
+.mp{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.mp input{background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.18);border-radius:10px;color:#fff;padding:10px 12px;font-size:15px;-webkit-user-select:text;user-select:text}
+.mp button{background:rgba(79,184,255,.2);color:#fff;border:2px solid #4fb8ff;border-radius:10px;padding:10px 14px;font-size:14px;font-weight:700;cursor:pointer}
+#mpstatus{opacity:.8;font-size:13px}

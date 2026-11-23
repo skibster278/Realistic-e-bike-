@@ -24,6 +24,7 @@ import { BIKES, buildBike, setRiderAsset } from './bikes.js';
 import { Traffic, headMat, tailMat, addRealCar } from './traffic.js';
 import { Wildlife } from './animals.js';
 import { Player } from './player.js';
+import { Multiplayer } from './mp.js';
 import { Game, save, persist, PRICES, ORDER, buy, buyUpgrade, upgradeCost, upLevel, tunedSpec, fmt } from './game.js';
 import { clamp, smoothstep, lerp } from './util.js';
 
@@ -196,6 +197,7 @@ addEventListener('resize', () => {
 // ------------------------------------------------------------ input
 const keys = {};
 addEventListener('keydown', (e) => {
+  if (e.target && e.target.tagName === 'INPUT') return; // typing a name / room code
   keys[e.code] = true;
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
   if (!started) return;
@@ -223,7 +225,7 @@ function applyInputMode() {
 }
 function showTouch() { if (inputMode !== 'touch') { inputMode = 'touch'; applyInputMode(); } }
 addEventListener('touchstart', () => { if (performance.now() - lastKeyT > 4000) showTouch(); }, { passive: true });
-addEventListener('keydown', () => { lastKeyT = performance.now(); if (inputMode !== 'keys') { inputMode = 'keys'; applyInputMode(); } });
+addEventListener('keydown', (e) => { if (e.target && e.target.tagName === 'INPUT') return; lastKeyT = performance.now(); if (inputMode !== 'keys') { inputMode = 'keys'; applyInputMode(); } });
 {
   const stick = $('stick'), knob = $('knob');
   let sid = null;
@@ -319,7 +321,7 @@ function crashSound() {
 }
 
 // ------------------------------------------------------------ game state
-let grass = null, game = null; const dust = new Dust(scene); const marks = new TyreMarks(scene);
+let grass = null, game = null, mp = null; const dust = new Dust(scene); const marks = new TyreMarks(scene);
 let started = false, camMode = 0, timeOfDay = 16.9, bigMap = false, lockGolden = false, dayDir = 1;
 const DAY_START = 10.5, DAY_END = 17.75;
 // all bundled sky photos have their sun at equirect u ~0.6 -> horizontal direction (cos 36deg, sin 36deg)
@@ -713,6 +715,7 @@ function frame(rawDt) {
   dust.update(dt, player, bike);
   if (started) marks.update(player, inp);
   if (game) game.update(dt, started && $('menu').classList.contains('hide'));
+  if (mp) mp.update(dt);
   updateCarLights(dt);
   for (const ax of ['x', 'z']) { const st = signal(ax, traffic.time || 0), m = signalMats[ax]; if (m) for (const c of ['r', 'y', 'g']) m[c].emissiveIntensity = st === c ? 3.2 : 0.02; }
   syncBike(dt);
@@ -793,6 +796,12 @@ function buildMenu() {
     b.classList.toggle('sel', b.dataset.q === qualityName);
     b.onclick = () => { if (b.dataset.q === qualityName) return; try { localStorage.setItem('voltride.q3', b.dataset.q); } catch (e) {} location.reload(); };
   });
+  $('mpname').value = save.name || '';
+  $('mpname').oninput = () => { save.name = $('mpname').value.slice(0, 14); persist(); mp && mp.refresh(); };
+  $('mpcreate').onclick = () => mp && mp.create();
+  $('mpjoin').onclick = () => mp && mp.join($('mpcode').value);
+  $('mpleave').onclick = () => mp && mp.leave();
+  { const room = new URLSearchParams(location.search).get('room'); if (room) $('mpcode').value = room.toUpperCase(); }
   $('go').onclick = () => {
     initAudio(); audio && audio.ac.resume();
     $('menu').classList.add('hide');
@@ -874,6 +883,8 @@ function loadRealModels() {
   traffic = new Traffic(scene, Q.traffic);
   game = new Game({ scene, player, traffic, toast, $, place: (x, z, yaw) => placePlayer(x, z, yaw) });
   window.__game.game = game;
+  mp = new Multiplayer({ scene, player, game, toast, $, buildBike, BIKES, bikeId: () => BIKES[bikeIdx].id });
+  game.mp = mp; window.__game.mp = mp;
   status('Releasing wildlife…'); await tick();
   wildlife = new Wildlife(scene);
   mapInfo = makeMapCanvas();

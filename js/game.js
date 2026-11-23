@@ -164,7 +164,7 @@ export class Game {
     const prev = save.best[r.id]; const record = !prev || t < prev; if (record) save.best[r.id] = t;
     addMoney(pay); persist();
     this.showResult(`${r.name}`, `${t.toFixed(2)} s · ${medal}${record ? ' · NEW RECORD' : ''}`, `+${fmt(pay)}`);
-    if (this.mp && this.mp.connected()) this.mp.send({ t: 'fin', race: r.id, time: t });
+    if (this.mp && this.mp.connected()) { const m = { t: 'fin', race: r.id, time: t, n: this.mp.name(), id: this.mp.myId() }; this.mp.onFinish(m); this.mp.send(m); }
     this.endRace();
   }
   endRace() { this.race = null; for (const g of this.gates) g.visible = false; this.c.$('countdown').classList.remove('show'); }
